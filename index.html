@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#102a43" />
+    <title>MPP Edge</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Coupe du monde</p>
+          <h1>MPP Edge</h1>
+        </div>
+      </header>
+
+      <main>
+        <section class="summary-grid" aria-label="Synthese">
+          <article class="metric">
+            <span class="metric-label">EV totale</span>
+            <strong id="totalEv">0.0</strong>
+            <small>points prevus</small>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Points reels</span>
+            <strong id="realPoints">0</strong>
+            <small id="hitRate">0/0 bons resultats</small>
+          </article>
+          <article class="metric accent">
+            <span class="metric-label">x2</span>
+            <strong id="x2Status">Disponible</strong>
+            <small id="x2Hint">aucun match choisi</small>
+          </article>
+        </section>
+
+        <section class="toolbar" aria-label="Actions principales">
+          <button class="primary-button" id="addMatchButton" type="button">Ajouter un match</button>
+          <button class="secondary-button" id="openImportButton" type="button">Import / OCR</button>
+          <button class="secondary-button" id="settingsButton" type="button">Parametres</button>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Matchs</h2>
+              <p id="matchCount">Aucun match</p>
+            </div>
+            <select id="matchFilter" aria-label="Filtrer les matchs">
+              <option value="all">Tous</option>
+              <option value="upcoming">A jouer</option>
+              <option value="completed">Termines</option>
+              <option value="x2">Candidats x2</option>
+            </select>
+          </div>
+          <div id="matchList" class="match-list"></div>
+          <div id="emptyState" class="empty-state">
+            <strong>Ajoute ton premier match.</strong>
+            <p>Rentre les points MPP et les cotes 1/N/2. L'app calcule le TRJ, les probas sans marge et le meilleur prono.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="matchDialog" class="dialog">
+      <form method="dialog" id="matchForm" class="dialog-body">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Fiche match</p>
+            <h2 id="dialogTitle">Nouveau match</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeMatchDialog" aria-label="Fermer">x</button>
+        </div>
+
+        <input type="hidden" id="matchId" />
+
+        <div class="form-grid two">
+          <label>
+            Equipe 1
+            <input id="homeTeam" required autocomplete="off" placeholder="Mexique" />
+          </label>
+          <label>
+            Equipe 2
+            <input id="awayTeam" required autocomplete="off" placeholder="Afrique du Sud" />
+          </label>
+        </div>
+
+        <label>
+          Coup d'envoi
+          <input id="kickoff" type="datetime-local" />
+        </label>
+
+        <div class="section-title">
+          <h3>Points MPP</h3>
+          <span>1 / N / 2</span>
+        </div>
+        <div class="form-grid three">
+          <label>
+            1
+            <input id="mppHome" inputmode="decimal" placeholder="49" />
+          </label>
+          <label>
+            N
+            <input id="mppDraw" inputmode="decimal" placeholder="125" />
+          </label>
+          <label>
+            2
+            <input id="mppAway" inputmode="decimal" placeholder="148" />
+          </label>
+        </div>
+
+        <div class="section-title">
+          <h3>Cotes sharp</h3>
+          <span>decimal</span>
+        </div>
+        <div class="form-grid three">
+          <label>
+            1
+            <input id="oddsHome" inputmode="decimal" placeholder="1.429" />
+          </label>
+          <label>
+            N
+            <input id="oddsDraw" inputmode="decimal" placeholder="4.54" />
+          </label>
+          <label>
+            2
+            <input id="oddsAway" inputmode="decimal" placeholder="8.47" />
+          </label>
+        </div>
+
+        <details class="advanced">
+          <summary>Marches buts et score exact</summary>
+
+          <div class="section-title">
+            <h3>Total buts</h3>
+            <span>optionnel</span>
+          </div>
+          <div class="form-grid two">
+            <label>
+              Over 2.5
+              <input id="over25" inputmode="decimal" placeholder="2.18" />
+            </label>
+            <label>
+              Under 2.5
+              <input id="under25" inputmode="decimal" placeholder="1.735" />
+            </label>
+          </div>
+
+          <div class="section-title">
+            <h3>BTTS</h3>
+            <span>optionnel</span>
+          </div>
+          <div class="form-grid two">
+            <label>
+              Oui
+              <input id="bttsYes" inputmode="decimal" placeholder="2.47" />
+            </label>
+            <label>
+              Non
+              <input id="bttsNo" inputmode="decimal" placeholder="1.578" />
+            </label>
+          </div>
+
+          <div class="section-title">
+            <h3>Team totals</h3>
+            <span>optionnel</span>
+          </div>
+          <div class="form-grid two">
+            <label>
+              Equipe 1 over 1.5
+              <input id="homeOver15" inputmode="decimal" placeholder="1.714" />
+            </label>
+            <label>
+              Equipe 1 under 1.5
+              <input id="homeUnder15" inputmode="decimal" placeholder="2.15" />
+            </label>
+            <label>
+              Equipe 2 over 0.5
+              <input id="awayOver05" inputmode="decimal" placeholder="2.13" />
+            </label>
+            <label>
+              Equipe 2 under 0.5
+              <input id="awayUnder05" inputmode="decimal" placeholder="1.729" />
+            </label>
+          </div>
+
+          <label>
+            Cotes score exact collees
+            <textarea id="correctScoreText" rows="8" placeholder="Mexico 1, South Africa 0 5.600&#10;Mexico 2, South Africa 0 6.130"></textarea>
+          </label>
+          <button class="secondary-button full" id="parseScoresButton" type="button">Analyser les scores colles</button>
+          <div id="scoreParseInfo" class="helper"></div>
+        </details>
+
+        <details class="advanced">
+          <summary>Resultat et suivi</summary>
+          <div class="form-grid two">
+            <label>
+              Buts equipe 1
+              <input id="actualHome" inputmode="numeric" placeholder="2" />
+            </label>
+            <label>
+              Buts equipe 2
+              <input id="actualAway" inputmode="numeric" placeholder="0" />
+            </label>
+            <label>
+              Bonus exact reel
+              <select id="actualBonus">
+                <option value="">Non renseigne</option>
+                <option value="20">+20 Exact</option>
+                <option value="30">+30 Rare</option>
+                <option value="50">+50 Tres rare</option>
+                <option value="70">+70 Mega rare</option>
+                <option value="100">+100 Ultra rare</option>
+              </select>
+            </label>
+            <label class="checkbox-row">
+              <input id="x2Used" type="checkbox" />
+              x2 utilise sur ce match
+            </label>
+          </div>
+        </details>
+
+        <div id="matchPreview" class="preview-box"></div>
+
+        <div class="dialog-actions">
+          <button class="danger-button" id="deleteMatchButton" type="button">Supprimer</button>
+          <button class="secondary-button" type="button" id="recomputeButton">Recalculer</button>
+          <button class="primary-button" value="save" type="submit">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="importDialog" class="dialog">
+      <form method="dialog" class="dialog-body">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Import</p>
+            <h2>Capture ou collage</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeImportDialog" aria-label="Fermer">x</button>
+        </div>
+
+        <div class="notice">
+          <strong>Zero service payant.</strong>
+          <p>L'OCR utilise Tesseract.js cote navigateur si internet est disponible. Sinon colle simplement le texte ou saisis les chiffres.</p>
+        </div>
+
+        <label>
+          Type de donnees
+          <select id="importKind">
+            <option value="mpp">Points MPP 1/N/2</option>
+            <option value="odds">Cotes 1/N/2</option>
+            <option value="scores">Scores exacts</option>
+          </select>
+        </label>
+
+        <label>
+          Match cible
+          <select id="importMatch"></select>
+        </label>
+
+        <label>
+          Photo depuis iPhone
+          <input id="imageInput" type="file" accept="image/*" />
+        </label>
+
+        <button class="secondary-button full" id="runOcrButton" type="button">Lire la capture</button>
+        <progress id="ocrProgress" value="0" max="1" hidden></progress>
+
+        <label>
+          Texte colle ou OCR
+          <textarea id="importText" rows="10" placeholder="Colle ici les cotes ou le texte OCR..."></textarea>
+        </label>
+
+        <div id="importPreview" class="preview-box"></div>
+
+        <div class="dialog-actions">
+          <button class="secondary-button" id="previewImportButton" type="button">Previsualiser</button>
+          <button class="primary-button" id="applyImportButton" type="button">Appliquer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="settingsDialog" class="dialog">
+      <form method="dialog" class="dialog-body">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Parametres</p>
+            <h2>Modele</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeSettingsDialog" aria-label="Fermer">x</button>
+        </div>
+
+        <label>
+          Seuil x2 minimum
+          <input id="x2Threshold" inputmode="decimal" placeholder="45" />
+        </label>
+        <label>
+          Penalite risque score
+          <select id="riskMode">
+            <option value="balanced">Equilibre</option>
+            <option value="conservative">Conservateur</option>
+            <option value="aggressive">Agressif</option>
+          </select>
+        </label>
+
+        <div class="section-title">
+          <h3>Synchronisation</h3>
+          <span>GitHub Gist</span>
+        </div>
+        <div class="notice">
+          <strong>Gratuit, sans backend.</strong>
+          <p>Utilise un Gist secret/non liste. Le token reste dans le navigateur de chaque appareil.</p>
+        </div>
+        <label>
+          Token GitHub
+          <input id="syncToken" type="password" autocomplete="off" placeholder="ghp_..." />
+        </label>
+        <label>
+          Gist ID
+          <input id="syncGistId" autocomplete="off" placeholder="cree automatiquement ou colle ici" />
+        </label>
+        <label class="checkbox-row compact">
+          <input id="autoSync" type="checkbox" />
+          Synchronisation auto
+        </label>
+        <div class="sync-actions">
+          <button class="secondary-button" id="saveSyncButton" type="button">Sauver config</button>
+          <button class="secondary-button" id="createGistButton" type="button">Creer Gist</button>
+          <button class="secondary-button" id="pullSyncButton" type="button">Recuperer</button>
+          <button class="primary-button" id="pushSyncButton" type="button">Envoyer</button>
+        </div>
+        <div id="syncStatus" class="preview-box"></div>
+
+        <div class="section-title">
+          <h3>Sauvegarde</h3>
+          <span>local</span>
+        </div>
+        <button class="secondary-button full" id="exportDataButton" type="button">Exporter JSON</button>
+        <label>
+          Importer JSON
+          <input id="importDataInput" type="file" accept="application/json" />
+        </label>
+        <button class="danger-button full" id="resetDataButton" type="button">Reinitialiser</button>
+      </form>
+    </dialog>
+
+    <template id="matchCardTemplate">
+      <article class="match-card">
+        <div class="match-main">
+          <div>
+            <span class="kickoff"></span>
+            <h3 class="teams"></h3>
+          </div>
+          <div class="recommendation"></div>
+        </div>
+        <div class="ev-strip"></div>
+        <div class="card-footer">
+          <span class="status-pill"></span>
+          <button class="secondary-button small edit-button" type="button">Ouvrir</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
