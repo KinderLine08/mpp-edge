@@ -29,10 +29,17 @@ La synch utilise un GitHub Gist secret/non liste.
 2. Dans l'app, ouvre Parametres.
 3. Colle le token.
 4. Clique sur "Creer Gist".
-5. Sur l'autre appareil, colle le meme token et le Gist ID.
-6. Clique sur "Recuperer" ou active "Synchronisation auto".
+5. Clique sur "Copier le lien magique" et garde-le dans Notes (iPhone) :
+   ouvrir ce lien restaure token + Gist ID + auto-sync en un tap.
+6. Sur l'autre appareil : ouvre le lien magique, ou colle le Gist ID seul
+   puis "Recuperer" (la lecture marche sans token ; le token n'est requis
+   que pour envoyer).
 
-Le token est stocke uniquement dans le navigateur de l'appareil. Il n'est pas inclus dans l'export JSON.
+Le token est stocke uniquement dans le navigateur de l'appareil (et dans le
+lien magique si tu en copies un : garde-le prive). Il n'est pas inclus dans
+l'export JSON. Les champs vides du formulaire n'ecrasent jamais une config
+deja enregistree, et l'app demande le stockage persistant au navigateur
+pour limiter le nettoyage iOS.
 
 ## Methode
 

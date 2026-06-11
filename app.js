@@ -58,6 +58,7 @@ const els = {
   syncGistId: document.querySelector("#syncGistId"),
   autoSync: document.querySelector("#autoSync"),
   saveSyncButton: document.querySelector("#saveSyncButton"),
+  magicLinkButton: document.querySelector("#magicLinkButton"),
   createGistButton: document.querySelector("#createGistButton"),
   pullSyncButton: document.querySelector("#pullSyncButton"),
   pushSyncButton: document.querySelector("#pushSyncButton"),
@@ -912,22 +913,24 @@ function setSyncStatus(message, variant = "") {
   els.syncStatus.innerHTML = `<span class="helper" style="color:${color}">${message}</span>`;
 }
 
-function syncHeaders() {
-  if (!syncConfig.token) throw new Error("Token GitHub manquant.");
-  return {
+function syncHeaders({ requireToken = true } = {}) {
+  if (requireToken && !syncConfig.token) throw new Error("Token GitHub manquant.");
+  const headers = {
     Accept: "application/vnd.github+json",
-    Authorization: `Bearer ${syncConfig.token}`,
     "Content-Type": "application/json",
     "X-GitHub-Api-Version": "2022-11-28",
   };
+  if (syncConfig.token) headers.Authorization = `Bearer ${syncConfig.token}`;
+  return headers;
 }
 
 async function githubRequest(url, options = {}) {
+  const { requireToken = true, headers: extraHeaders, ...fetchOptions } = options;
   const response = await fetch(url, {
-    ...options,
+    ...fetchOptions,
     headers: {
-      ...syncHeaders(),
-      ...(options.headers || {}),
+      ...syncHeaders({ requireToken }),
+      ...(extraHeaders || {}),
     },
   });
   const text = await response.text();
@@ -965,13 +968,14 @@ async function readSyncGist() {
   if (!syncConfig.gistId) throw new Error("Gist ID manquant.");
   const gist = await githubRequest(`https://api.github.com/gists/${encodeURIComponent(syncConfig.gistId)}`, {
     method: "GET",
+    requireToken: false,
   });
   const file = gist.files?.[SYNC_FILE] || Object.values(gist.files || {})[0];
   if (!file) throw new Error(`Fichier ${SYNC_FILE} introuvable dans le Gist.`);
   let content = file.content || "";
   if (file.truncated || !content) {
     const rawResponse = await fetch(`${file.raw_url}?t=${Date.now()}`, {
-      headers: syncHeaders(),
+      headers: syncHeaders({ requireToken: false }),
     });
     if (!rawResponse.ok) throw new Error(`Lecture raw impossible: ${rawResponse.status}`);
     content = await rawResponse.text();
@@ -1054,13 +1058,56 @@ function scheduleAutoSync() {
 }
 
 function saveSyncSettingsFromForm() {
+  // Les champs du formulaire ne sont remplis que quand le dialogue Parametres
+  // est ouvert ; les lire dialogue ferme ecraserait la config par du vide.
+  if (!els.settingsDialog.open) return;
   syncConfig = {
     ...syncConfig,
-    token: els.syncToken.value.trim(),
-    gistId: els.syncGistId.value.trim(),
+    token: els.syncToken.value.trim() || syncConfig.token,
+    gistId: els.syncGistId.value.trim() || syncConfig.gistId,
     autoSync: els.autoSync.checked,
   };
   saveSyncConfig();
+}
+
+function buildMagicLink() {
+  const payload = { t: syncConfig.token || "", g: syncConfig.gistId || "", a: syncConfig.autoSync ? 1 : 0 };
+  return `${location.origin}${location.pathname}#cfg=${btoa(JSON.stringify(payload))}`;
+}
+
+async function copyMagicLink() {
+  saveSyncSettingsFromForm();
+  if (!syncConfig.token && !syncConfig.gistId) {
+    setSyncStatus("Renseigne d'abord le token et le Gist ID.", "error");
+    return;
+  }
+  const link = buildMagicLink();
+  try {
+    await navigator.clipboard.writeText(link);
+    setSyncStatus("Lien copie. Colle-le dans Notes : si la config saute, ouvrir le lien la restaure en un tap.", "good");
+  } catch {
+    els.syncStatus.innerHTML = `<span class="helper">Copie auto impossible, selectionne le lien :</span><textarea rows="3" readonly style="width:100%">${link}</textarea>`;
+  }
+}
+
+function applyConfigFromUrl() {
+  const match = location.hash.match(/cfg=([^&]+)/);
+  if (!match) return false;
+  try {
+    const payload = JSON.parse(atob(decodeURIComponent(match[1])));
+    syncConfig = {
+      ...syncConfig,
+      token: payload.t ? String(payload.t) : syncConfig.token,
+      gistId: payload.g ? String(payload.g) : syncConfig.gistId,
+      autoSync: "a" in payload ? Boolean(payload.a) : syncConfig.autoSync,
+    };
+    saveSyncConfig();
+    history.replaceState(null, "", location.pathname + location.search);
+    setSyncStatus("Configuration restauree depuis le lien magique.", "good");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function fillSyncForm() {
@@ -1217,6 +1264,7 @@ function bindEvents() {
     saveSyncSettingsFromForm();
     setSyncStatus("Configuration synch sauvegardee.", "good");
   });
+  els.magicLinkButton.addEventListener("click", copyMagicLink);
   els.createGistButton.addEventListener("click", async () => {
     await withSyncButton(els.createGistButton, () => createSyncGist());
   });
@@ -1241,10 +1289,16 @@ function registerServiceWorker() {
 }
 
 bindEvents();
+const restoredFromLink = applyConfigFromUrl();
 render();
 registerServiceWorker();
+navigator.storage?.persist?.();
 if (syncConfig.autoSync && syncConfig.token && syncConfig.gistId) {
   setTimeout(() => {
     syncNow({ silent: true }).catch(() => {});
+  }, 800);
+} else if (restoredFromLink && syncConfig.gistId) {
+  setTimeout(() => {
+    pullSync({ silent: true }).catch(() => {});
   }, 800);
 }
