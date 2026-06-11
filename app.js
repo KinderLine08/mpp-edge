@@ -1,4 +1,4 @@
-const APP_VERSION = "v15";
+const APP_VERSION = "v16";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -761,8 +761,12 @@ function renderPreview() {
     return;
   }
 
-  const scoreRows = calc.scores
-    .slice(0, 6)
+  // Top 8 par EV + le score le plus probable, toujours visible meme si son
+  // bonus ecrase (score trop joue) le sort du classement.
+  const topScores = calc.scores.slice(0, 8);
+  const mostProbable = calc.scores.reduce((best, score) => (score.probability > (best?.probability || 0) ? score : best), null);
+  if (mostProbable && !topScores.includes(mostProbable)) topScores.push(mostProbable);
+  const scoreRows = topScores
     .map(
       (score) => `
         <tr>
