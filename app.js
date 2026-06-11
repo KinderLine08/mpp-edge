@@ -1,4 +1,4 @@
-const APP_VERSION = "v14";
+const APP_VERSION = "v15";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -80,6 +80,9 @@ const fields = {
   mppHome: document.querySelector("#mppHome"),
   mppDraw: document.querySelector("#mppDraw"),
   mppAway: document.querySelector("#mppAway"),
+  publicHome: document.querySelector("#publicHome"),
+  publicDraw: document.querySelector("#publicDraw"),
+  publicAway: document.querySelector("#publicAway"),
   oddsHome: document.querySelector("#oddsHome"),
   oddsDraw: document.querySelector("#oddsDraw"),
   oddsAway: document.querySelector("#oddsAway"),
@@ -419,7 +422,18 @@ function blendScoreProbabilities(poissonScores, correctScores) {
   });
 }
 
-function estimateBonus(score, scoreProbability, issueProbability, riskMode) {
+function normalizePublicSplit(split) {
+  if (!split) return null;
+  const home = Number(split.home);
+  const draw = Number(split.draw);
+  const away = Number(split.away);
+  if (![home, draw, away].every((value) => Number.isFinite(value) && value >= 0)) return null;
+  const sum = home + draw + away;
+  if (sum <= 0) return null;
+  return { home: home / sum, draw: draw / sum, away: away / sum };
+}
+
+function estimateBonus(score, scoreProbability, issueProbability, riskMode, issuePickShare) {
   if (!Number.isFinite(scoreProbability) || !Number.isFinite(issueProbability) || issueProbability <= 0) return 20;
   const conditional = scoreProbability / issueProbability;
   const home = score.home;
@@ -450,7 +464,10 @@ function estimateBonus(score, scoreProbability, issueProbability, riskMode) {
   if (riskMode === "conservative") bias *= 1.18;
   if (riskMode === "aggressive") bias *= 0.82;
 
-  const estimatedPublicShare = conditional * bias;
+  // Avec le % public MPP (repartition reelle des pronos par issue), la part
+  // estimee devient: part de l'issue x concentration sur ce score.
+  const withinIssue = Math.min(0.95, conditional * bias);
+  const estimatedPublicShare = Number.isFinite(issuePickShare) ? issuePickShare * withinIssue : withinIssue;
   if (estimatedPublicShare > 0.3) return 20;
   if (estimatedPublicShare > 0.2) return 30;
   if (estimatedPublicShare > 0.05) return 50;
@@ -474,6 +491,7 @@ function calculateMatch(match) {
   const rarityMap = new Map(
     parseCorrectScoreLines(match.rarityBonusText).map((row) => [`${row.home}-${row.away}`, row.odd]),
   );
+  const publicSplit = normalizePublicSplit(match.publicSplit);
   const scores = blendScoreProbabilities(poissonScores, correctScores)
     .map((score) => {
       const issue = outcomeFromScore(score.home, score.away);
@@ -481,7 +499,7 @@ function calculateMatch(match) {
       const knownBonus = rarityMap.get(`${score.home}-${score.away}`);
       const bonus = Number.isFinite(knownBonus)
         ? knownBonus
-        : estimateBonus(score, score.probability, probabilities[issue], state.settings.riskMode);
+        : estimateBonus(score, score.probability, probabilities[issue], state.settings.riskMode, publicSplit?.[issue]);
       return {
         ...score,
         issue,
@@ -567,6 +585,11 @@ function matchFromForm() {
       draw: parseNumber(fields.mppDraw.value),
       away: parseNumber(fields.mppAway.value),
     },
+    publicSplit: {
+      home: parseNumber(fields.publicHome.value),
+      draw: parseNumber(fields.publicDraw.value),
+      away: parseNumber(fields.publicAway.value),
+    },
     odds: {
       home: parseNumber(fields.oddsHome.value),
       draw: parseNumber(fields.oddsDraw.value),
@@ -602,6 +625,9 @@ function fillForm(match) {
   fields.mppHome.value = match?.mpp?.home ?? "";
   fields.mppDraw.value = match?.mpp?.draw ?? "";
   fields.mppAway.value = match?.mpp?.away ?? "";
+  fields.publicHome.value = match?.publicSplit?.home ?? "";
+  fields.publicDraw.value = match?.publicSplit?.draw ?? "";
+  fields.publicAway.value = match?.publicSplit?.away ?? "";
   fields.oddsHome.value = match?.odds?.home ?? "";
   fields.oddsDraw.value = match?.odds?.draw ?? "";
   fields.oddsAway.value = match?.odds?.away ?? "";
