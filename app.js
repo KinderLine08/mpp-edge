@@ -1,3 +1,4 @@
+const APP_VERSION = "v14";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -18,6 +19,8 @@ let syncConfig = loadSyncConfig();
 let syncTimer = null;
 
 const els = {
+  appVersion: document.querySelector("#appVersion"),
+  syncBadge: document.querySelector("#syncBadge"),
   totalEv: document.querySelector("#totalEv"),
   realPoints: document.querySelector("#realPoints"),
   hitRate: document.querySelector("#hitRate"),
@@ -137,6 +140,32 @@ function loadSyncConfig() {
 
 function saveSyncConfig() {
   localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
+  renderSyncBadge();
+}
+
+function renderSyncBadge() {
+  if (!els.syncBadge) return;
+  if (!syncConfig.gistId || !syncConfig.token) {
+    els.syncBadge.textContent = "synchro off";
+    els.syncBadge.classList.remove("err");
+    return;
+  }
+  if (syncInFlight) {
+    els.syncBadge.textContent = "synchro...";
+    return;
+  }
+  els.syncBadge.classList.toggle("err", Boolean(syncConfig.lastError));
+  if (syncConfig.lastError) {
+    els.syncBadge.textContent = "synchro KO";
+    return;
+  }
+  if (!syncConfig.lastSyncAt) {
+    els.syncBadge.textContent = "jamais synchro";
+    return;
+  }
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(syncConfig.lastSyncAt).getTime()) / 1000));
+  els.syncBadge.textContent =
+    seconds < 8 ? "synchro OK" : seconds < 60 ? `synchro ${seconds}s` : `synchro ${Math.round(seconds / 60)} min`;
 }
 
 function getClientId() {
@@ -983,12 +1012,23 @@ async function createSyncGist() {
   setSyncStatus(`Gist cree et donnees envoyees. ID: ${gist.id}`, "good");
 }
 
+let gistEtag = "";
+let gistCache = null;
+let gistCacheId = "";
+
 async function readSyncGist() {
   if (!syncConfig.gistId) throw new Error("Gist ID manquant.");
-  const gist = await githubRequest(`https://api.github.com/gists/${encodeURIComponent(syncConfig.gistId)}`, {
-    method: "GET",
-    requireToken: false,
-  });
+  const headers = syncHeaders({ requireToken: false });
+  // Requete conditionnelle : un 304 (rien de neuf) ne compte pas dans le
+  // quota GitHub, ce qui permet un sondage frequent sans risque.
+  if (gistEtag && gistCache && gistCacheId === syncConfig.gistId) {
+    headers["If-None-Match"] = gistEtag;
+  }
+  const response = await fetch(`https://api.github.com/gists/${encodeURIComponent(syncConfig.gistId)}`, { headers });
+  if (response.status === 304) return gistCache;
+  const text = await response.text();
+  const gist = text ? JSON.parse(text) : null;
+  if (!response.ok) throw new Error(`GitHub ${response.status}: ${gist?.message || response.statusText}`);
   const file = gist.files?.[SYNC_FILE] || Object.values(gist.files || {})[0];
   if (!file) throw new Error(`Fichier ${SYNC_FILE} introuvable dans le Gist.`);
   let content = file.content || "";
@@ -999,7 +1039,11 @@ async function readSyncGist() {
     if (!rawResponse.ok) throw new Error(`Lecture raw impossible: ${rawResponse.status}`);
     content = await rawResponse.text();
   }
-  return JSON.parse(content);
+  const parsed = JSON.parse(content);
+  gistEtag = response.headers.get("ETag") || "";
+  gistCache = parsed;
+  gistCacheId = syncConfig.gistId;
+  return parsed;
 }
 
 async function writeSyncGist() {
@@ -1063,6 +1107,7 @@ async function syncNow({ silent = false } = {}) {
   if (syncInFlight) return;
   if (!syncConfig.token || !syncConfig.gistId) return;
   syncInFlight = true;
+  renderSyncBadge();
   try {
     if (!silent) setSyncStatus("Synchronisation...");
     await pullSync({ silent: true });
@@ -1073,6 +1118,7 @@ async function syncNow({ silent = false } = {}) {
     if (!silent) setSyncStatus("Synchronisation terminee.", "good");
   } finally {
     syncInFlight = false;
+    renderSyncBadge();
   }
 }
 
@@ -1292,6 +1338,9 @@ function bindEvents() {
     setSyncStatus("Configuration synch sauvegardee.", "good");
   });
   els.magicLinkButton.addEventListener("click", copyMagicLink);
+  els.syncBadge.addEventListener("click", () => {
+    syncNow({ silent: true }).catch(() => {});
+  });
   els.createGistButton.addEventListener("click", async () => {
     await withSyncButton(els.createGistButton, () => createSyncGist());
   });
@@ -1335,8 +1384,12 @@ if (syncConfig.autoSync && syncConfig.token && syncConfig.gistId) {
     pullSync({ silent: true }).catch(() => {});
   }, 800);
 }
-// Synchro quasi temps reel : au retour sur l'app et toutes les 60 s tant
-// qu'elle est visible (bien sous les 5000 requetes/h autorisees par GitHub).
+// Synchro quasi temps reel : au retour sur l'app et toutes les 12 s tant
+// qu'elle est visible. Les lectures conditionnelles (304) ne consomment
+// pas le quota GitHub, seuls les vrais changements coutent une requete.
 document.addEventListener("visibilitychange", liveSyncTick);
 window.addEventListener("focus", liveSyncTick);
-setInterval(liveSyncTick, 60000);
+setInterval(liveSyncTick, 12000);
+els.appVersion.textContent = `Coupe du monde · ${APP_VERSION}`;
+renderSyncBadge();
+setInterval(renderSyncBadge, 5000);

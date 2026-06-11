@@ -72,6 +72,22 @@ button {
   text-transform: uppercase;
 }
 
+.sync-badge {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.sync-badge.err {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 h1,
 h2,
 h3,
