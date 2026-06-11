@@ -1,4 +1,4 @@
-const APP_VERSION = "v18";
+const APP_VERSION = "v19";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -110,6 +110,8 @@ const fields = {
   awayUnder05: document.querySelector("#awayUnder05"),
   correctScoreText: document.querySelector("#correctScoreText"),
   rarityBonusText: document.querySelector("#rarityBonusText"),
+  playedHome: document.querySelector("#playedHome"),
+  playedAway: document.querySelector("#playedAway"),
   actualHome: document.querySelector("#actualHome"),
   actualAway: document.querySelector("#actualAway"),
   actualBonus: document.querySelector("#actualBonus"),
@@ -534,7 +536,7 @@ function calculateMatch(match) {
     .filter(([, ev]) => Number.isFinite(ev))
     .sort((a, b) => b[1] - a[1])[0]?.[0];
   const recommendation = chooseRobustScore(scores, state.settings.riskMode);
-  const actual = calculateActualPoints(match, recommendation);
+  const actual = calculateActualPoints(match, recommendation, scores);
 
   return {
     resultMarket,
@@ -566,14 +568,21 @@ function chooseRobustScore(scores, riskMode) {
     .sort((a, b) => b.ev - a.ev || b.probability - a.probability)[0] || scores[0];
 }
 
-function calculateActualPoints(match, recommendation) {
+function calculateActualPoints(match, recommendation, scores = []) {
   const home = match.actual?.home;
   const away = match.actual?.away;
-  if (!Number.isFinite(home) || !Number.isFinite(away) || !recommendation) return null;
+  // Le prono reellement joue dans MPP prime sur la reco du moment : la reco
+  // peut bouger apres validation, pas les points.
+  const playedHome = match.played?.home;
+  const playedAway = match.played?.away;
+  const hasPlayed = Number.isFinite(playedHome) && Number.isFinite(playedAway);
+  const pick = hasPlayed
+    ? { home: playedHome, away: playedAway, issue: outcomeFromScore(playedHome, playedAway) }
+    : recommendation;
+  if (!Number.isFinite(home) || !Number.isFinite(away) || !pick) return null;
 
   const actualIssue = outcomeFromScore(home, away);
-  const predictedIssue = recommendation.issue;
-  if (actualIssue !== predictedIssue) {
+  if (actualIssue !== pick.issue) {
     return {
       points: 0,
       issueHit: false,
@@ -583,8 +592,9 @@ function calculateActualPoints(match, recommendation) {
   }
 
   const base = match.mpp?.[actualIssue] || 0;
-  const exactHit = home === recommendation.home && away === recommendation.away;
-  const bonus = exactHit ? match.actual?.bonus || recommendation.bonus || 0 : 0;
+  const exactHit = home === pick.home && away === pick.away;
+  const estimatedBonus = scores.find((score) => score.home === pick.home && score.away === pick.away)?.bonus;
+  const bonus = exactHit ? match.actual?.bonus || estimatedBonus || 0 : 0;
   const multiplier = match.x2Used ? 2 : 1;
   return {
     points: (base + bonus) * multiplier,
@@ -627,6 +637,10 @@ function matchFromForm() {
     },
     correctScoreText: fields.correctScoreText.value.trim(),
     rarityBonusText: fields.rarityBonusText.value.trim(),
+    played: {
+      home: parseNumber(fields.playedHome.value),
+      away: parseNumber(fields.playedAway.value),
+    },
     actual: {
       home: parseNumber(fields.actualHome.value),
       away: parseNumber(fields.actualAway.value),
@@ -661,6 +675,8 @@ function fillForm(match) {
   fields.awayUnder05.value = match?.markets?.awayUnder05 ?? "";
   fields.correctScoreText.value = match?.correctScoreText || "";
   fields.rarityBonusText.value = match?.rarityBonusText || "";
+  fields.playedHome.value = match?.played?.home ?? "";
+  fields.playedAway.value = match?.played?.away ?? "";
   fields.actualHome.value = match?.actual?.home ?? "";
   fields.actualAway.value = match?.actual?.away ?? "";
   fields.actualBonus.value = match?.actual?.bonus ?? "";
@@ -686,7 +702,12 @@ function render() {
 
 function renderSummary() {
   const calculations = state.matches.map((match) => ({ match, calc: calculateMatch(match) }));
-  const totalEv = calculations.reduce((sum, item) => sum + (item.calc.recommendation?.ev || 0), 0);
+  // EV totale = matchs restants uniquement ; les matchs joues sont dans
+  // "Points reels".
+  const totalEv = calculations.reduce(
+    (sum, item) => sum + (!item.calc.actual && item.calc.recommendation ? item.calc.recommendation.ev : 0),
+    0,
+  );
   const completed = calculations.filter((item) => item.calc.actual);
   const realPoints = completed.reduce((sum, item) => sum + item.calc.actual.points, 0);
   const issueHits = completed.filter((item) => item.calc.actual.issueHit).length;
@@ -815,6 +836,15 @@ function renderPreview() {
     <div class="notice">
       <strong>Decision: ${rec ? `${rec.home}-${rec.away}` : "-"}</strong>
       <p>Modele buts: ${formatNumber(calc.lambdas.lambdaHome, 2)} - ${formatNumber(calc.lambdas.lambdaAway, 2)} xG. TRJ ${formatPercent(calc.resultMarket.trj, 1)}.</p>
+      ${
+        Number.isFinite(match.played?.home) && Number.isFinite(match.played?.away)
+          ? `<p>Prono joue: ${match.played.home}-${match.played.away}${
+              rec && (rec.home !== match.played.home || rec.away !== match.played.away)
+                ? " (different de la reco actuelle)"
+                : ""
+            }</p>`
+          : ""
+      }
     </div>
     <table class="score-table">
       <thead><tr><th>Score</th><th>Proba</th><th>Bonus</th><th>EV</th></tr></thead>
