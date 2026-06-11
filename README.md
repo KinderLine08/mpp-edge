@@ -46,10 +46,14 @@ EV issue = proba sans marge * points MPP
 EV score = EV issue + proba score exact * bonus rarete
 ```
 
-Le bonus rarete est estime par defaut (`~` dans le tableau). Si tu recopies
-les indices de rarete affiches dans MPP via le champ "Bonus rarete MPP par
-score" (format `2-0 30`), la valeur reelle remplace l'estimation (`+` dans
-le tableau).
+Le bonus rarete depend de la repartition des pronos de l'ensemble des
+joueurs MPP, figee au coup d'envoi : il n'est pas connaissable a l'avance.
+L'app l'estime (`~` dans le tableau) en modelisant ce que la foule joue :
+proba du score dans son issue + biais de popularite (1-0, 2-0, 2-1 et 1-1
+sur-joues, scores larges sous-joues). Le champ "Forcer le bonus rarete par
+score" (format `2-0 30`) permet de remplacer l'estimation (`+` dans le
+tableau) si tu as une meilleure info. Apres chaque match, renseigne le
+bonus reellement obtenu ("Bonus exact reel") pour verifier le calibrage.
 
 Si plusieurs scores ont une EV tres proche, l'app choisit le score le plus
 probable. Cela evite de sur-optimiser un bonus de rarete incertain.
