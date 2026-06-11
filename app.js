@@ -1,4 +1,4 @@
-const APP_VERSION = "v16";
+const APP_VERSION = "v17";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -17,6 +17,20 @@ const defaultState = {
 let state = loadState();
 let syncConfig = loadSyncConfig();
 let syncTimer = null;
+// Push uniquement quand l'etat local a vraiment change : evite une ecriture
+// de Gist toutes les 12 s (explosion du quota GitHub + revisions inutiles).
+let stateDirty = false;
+let syncCooldownUntil = 0;
+
+function markDirty() {
+  stateDirty = true;
+}
+
+function noteSyncError(error) {
+  if (/rate limit/i.test(error?.message || "")) {
+    syncCooldownUntil = Date.now() + 15 * 60 * 1000;
+  }
+}
 
 const els = {
   appVersion: document.querySelector("#appVersion"),
@@ -155,6 +169,12 @@ function renderSyncBadge() {
   }
   if (syncInFlight) {
     els.syncBadge.textContent = "synchro...";
+    return;
+  }
+  if (Date.now() < syncCooldownUntil) {
+    const minutes = Math.max(1, Math.ceil((syncCooldownUntil - Date.now()) / 60000));
+    els.syncBadge.classList.add("err");
+    els.syncBadge.textContent = `pause API ${minutes} min`;
     return;
   }
   els.syncBadge.classList.toggle("err", Boolean(syncConfig.lastError));
@@ -821,6 +841,7 @@ function saveMatchFromForm() {
   if (index >= 0) state.matches[index] = match;
   else state.matches.push(match);
   if (state.deletedMatches) delete state.deletedMatches[match.id];
+  markDirty();
   render();
   scheduleAutoSync();
 }
@@ -833,6 +854,7 @@ function deleteCurrentMatch() {
     ...(state.deletedMatches || {}),
     [id]: new Date().toISOString(),
   };
+  markDirty();
   els.matchDialog.close();
   render();
   scheduleAutoSync();
@@ -898,6 +920,7 @@ function applyImport() {
   }
 
   match.updatedAt = new Date().toISOString();
+  markDirty();
   els.importDialog.close();
   render();
   scheduleAutoSync();
@@ -1106,6 +1129,7 @@ async function pullSync({ silent = false } = {}) {
     render();
     if (!silent) setSyncStatus("Donnees cloud recuperees et fusionnees.", "good");
   } catch (error) {
+    noteSyncError(error);
     syncConfig.lastError = error.message;
     saveSyncConfig();
     if (!silent) setSyncStatus(error.message, "error");
@@ -1118,12 +1142,15 @@ async function pushSync({ silent = false } = {}) {
     saveSyncSettingsFromForm();
     if (!syncConfig.gistId) {
       await createSyncGist();
+      stateDirty = false;
       return;
     }
     if (!silent) setSyncStatus("Envoi cloud...");
     await writeSyncGist();
+    stateDirty = false;
     if (!silent) setSyncStatus("Donnees locales envoyees.", "good");
   } catch (error) {
+    noteSyncError(error);
     syncConfig.lastError = error.message;
     saveSyncConfig();
     if (!silent) setSyncStatus(error.message, "error");
@@ -1141,7 +1168,7 @@ async function syncNow({ silent = false } = {}) {
   try {
     if (!silent) setSyncStatus("Synchronisation...");
     await pullSync({ silent: true });
-    await pushSync({ silent: true });
+    if (stateDirty) await pushSync({ silent: true });
     syncConfig.lastSyncAt = new Date().toISOString();
     syncConfig.lastError = "";
     saveSyncConfig();
@@ -1290,6 +1317,7 @@ function importData(file) {
         matches: Array.isArray(parsed.matches) ? parsed.matches : [],
         deletedMatches: parsed.deletedMatches && typeof parsed.deletedMatches === "object" ? parsed.deletedMatches : {},
       };
+      markDirty();
       render();
       els.settingsDialog.close();
     } catch {
@@ -1355,10 +1383,12 @@ function bindEvents() {
   els.closeSettingsDialog.addEventListener("click", () => els.settingsDialog.close());
   els.x2Threshold.addEventListener("input", () => {
     state.settings.x2Threshold = parseNumber(els.x2Threshold.value) || defaultState.settings.x2Threshold;
+    markDirty();
     render();
   });
   els.riskMode.addEventListener("change", () => {
     state.settings.riskMode = els.riskMode.value;
+    markDirty();
     render();
   });
   els.exportDataButton.addEventListener("click", exportData);
@@ -1383,6 +1413,7 @@ function bindEvents() {
   els.resetDataButton.addEventListener("click", () => {
     if (!confirm("Tout effacer ?")) return;
     state = structuredClone(defaultState);
+    markDirty();
     render();
     els.settingsDialog.close();
   });
@@ -1396,6 +1427,7 @@ function registerServiceWorker() {
 
 function liveSyncTick() {
   if (document.visibilityState !== "visible") return;
+  if (Date.now() < syncCooldownUntil) return;
   if (!syncConfig.autoSync || !syncConfig.token || !syncConfig.gistId) return;
   syncNow({ silent: true }).catch(() => {});
 }
