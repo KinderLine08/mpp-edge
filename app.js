@@ -88,6 +88,7 @@ const fields = {
   awayOver05: document.querySelector("#awayOver05"),
   awayUnder05: document.querySelector("#awayUnder05"),
   correctScoreText: document.querySelector("#correctScoreText"),
+  rarityBonusText: document.querySelector("#rarityBonusText"),
   actualHome: document.querySelector("#actualHome"),
   actualAway: document.querySelector("#actualAway"),
   actualBonus: document.querySelector("#actualBonus"),
@@ -440,15 +441,22 @@ function calculateMatch(match) {
   const lambdas = fitLambdas(match, probabilities);
   const poissonScores = scoreDistribution(lambdas.lambdaHome, lambdas.lambdaAway, 8);
   const correctScores = parseCorrectScoreLines(match.correctScoreText);
+  const rarityMap = new Map(
+    parseCorrectScoreLines(match.rarityBonusText).map((row) => [`${row.home}-${row.away}`, row.odd]),
+  );
   const scores = blendScoreProbabilities(poissonScores, correctScores)
     .map((score) => {
       const issue = outcomeFromScore(score.home, score.away);
       const issueBaseEv = issueEv[issue] || 0;
-      const bonus = estimateBonus(score, score.probability, probabilities[issue], state.settings.riskMode);
+      const knownBonus = rarityMap.get(`${score.home}-${score.away}`);
+      const bonus = Number.isFinite(knownBonus)
+        ? knownBonus
+        : estimateBonus(score, score.probability, probabilities[issue], state.settings.riskMode);
       return {
         ...score,
         issue,
         bonus,
+        bonusKnown: Number.isFinite(knownBonus),
         ev: issueBaseEv + score.probability * bonus,
       };
     })
@@ -545,6 +553,7 @@ function matchFromForm() {
       awayUnder05: parseNumber(fields.awayUnder05.value),
     },
     correctScoreText: fields.correctScoreText.value.trim(),
+    rarityBonusText: fields.rarityBonusText.value.trim(),
     actual: {
       home: parseNumber(fields.actualHome.value),
       away: parseNumber(fields.actualAway.value),
@@ -575,6 +584,7 @@ function fillForm(match) {
   fields.awayOver05.value = match?.markets?.awayOver05 ?? "";
   fields.awayUnder05.value = match?.markets?.awayUnder05 ?? "";
   fields.correctScoreText.value = match?.correctScoreText || "";
+  fields.rarityBonusText.value = match?.rarityBonusText || "";
   fields.actualHome.value = match?.actual?.home ?? "";
   fields.actualAway.value = match?.actual?.away ?? "";
   fields.actualBonus.value = match?.actual?.bonus ?? "";
@@ -702,7 +712,7 @@ function renderPreview() {
         <tr>
           <td>${score.home}-${score.away}</td>
           <td>${formatPercent(score.probability, 1)}</td>
-          <td>+${score.bonus}</td>
+          <td>${score.bonusKnown ? "+" : "~"}${score.bonus}</td>
           <td>${formatNumber(score.ev, 1)}</td>
         </tr>
       `,
