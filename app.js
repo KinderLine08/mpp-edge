@@ -1,4 +1,4 @@
-const APP_VERSION = "v17";
+const APP_VERSION = "v18";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -1422,7 +1422,27 @@ function bindEvents() {
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("./sw.js").catch(() => {});
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker
+    .register("./sw.js", { updateViaCache: "none" })
+    .then((registration) => {
+      const checkUpdate = () => registration.update().catch(() => {});
+      setInterval(checkUpdate, 5 * 60 * 1000);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") checkUpdate();
+      });
+    })
+    .catch(() => {});
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing || !hadController) return;
+    // Pas de rechargement si une fiche est ouverte : la nouvelle version
+    // s'appliquera au prochain lancement plutot que de perdre une saisie.
+    const dialogOpen = [els.matchDialog, els.importDialog, els.settingsDialog].some((dialog) => dialog?.open);
+    if (dialogOpen) return;
+    refreshing = true;
+    location.reload();
+  });
 }
 
 function liveSyncTick() {
