@@ -1,4 +1,4 @@
-const CACHE_NAME = "mpp-edge-v12";
+const CACHE_NAME = "mpp-edge-v13";
 const ASSETS = [
   "./",
   "./index.html",
@@ -23,6 +23,9 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  // Jamais de cache pour les requetes externes (API GitHub, CDN) :
+  // servir un Gist en cache rendrait la synchro aveugle aux nouveautes.
+  if (new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;

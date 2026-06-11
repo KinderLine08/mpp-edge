@@ -893,11 +893,30 @@ function mergeStates(localState, remoteState) {
     if (!existing || matchAt >= existingAt) byId.set(match.id, match);
   }
 
+  // Deux appareils qui ont saisi le meme match sans synchro lui ont donne
+  // des ids differents : on dedoublonne par equipes + jour, version la plus
+  // recente gagnante.
+  const byContent = new Map();
+  for (const match of byId.values()) {
+    const home = (match.homeTeam || "").trim().toLowerCase();
+    const away = (match.awayTeam || "").trim().toLowerCase();
+    if (!home && !away) {
+      byContent.set(match.id, match);
+      continue;
+    }
+    const day = match.kickoff ? String(match.kickoff).slice(0, 10) : "";
+    const key = `${home}|${away}|${day}`;
+    const existing = byContent.get(key);
+    const existingAt = new Date(existing?.updatedAt || 0).getTime();
+    const matchAt = new Date(match.updatedAt || 0).getTime();
+    if (!existing || matchAt >= existingAt) byContent.set(key, match);
+  }
+
   return {
     ...structuredClone(defaultState),
     ...local,
     settings: local.settings,
-    matches: [...byId.values()].sort((a, b) => {
+    matches: [...byContent.values()].sort((a, b) => {
       const ad = a.kickoff ? new Date(a.kickoff).getTime() : Number.MAX_SAFE_INTEGER;
       const bd = b.kickoff ? new Date(b.kickoff).getTime() : Number.MAX_SAFE_INTEGER;
       return ad - bd;
@@ -1038,15 +1057,23 @@ async function pushSync({ silent = false } = {}) {
   }
 }
 
+let syncInFlight = false;
+
 async function syncNow({ silent = false } = {}) {
+  if (syncInFlight) return;
   if (!syncConfig.token || !syncConfig.gistId) return;
-  if (!silent) setSyncStatus("Synchronisation...");
-  await pullSync({ silent: true });
-  await pushSync({ silent: true });
-  syncConfig.lastSyncAt = new Date().toISOString();
-  syncConfig.lastError = "";
-  saveSyncConfig();
-  if (!silent) setSyncStatus("Synchronisation terminee.", "good");
+  syncInFlight = true;
+  try {
+    if (!silent) setSyncStatus("Synchronisation...");
+    await pullSync({ silent: true });
+    await pushSync({ silent: true });
+    syncConfig.lastSyncAt = new Date().toISOString();
+    syncConfig.lastError = "";
+    saveSyncConfig();
+    if (!silent) setSyncStatus("Synchronisation terminee.", "good");
+  } finally {
+    syncInFlight = false;
+  }
 }
 
 function scheduleAutoSync() {
@@ -1288,6 +1315,12 @@ function registerServiceWorker() {
   navigator.serviceWorker.register("./sw.js").catch(() => {});
 }
 
+function liveSyncTick() {
+  if (document.visibilityState !== "visible") return;
+  if (!syncConfig.autoSync || !syncConfig.token || !syncConfig.gistId) return;
+  syncNow({ silent: true }).catch(() => {});
+}
+
 bindEvents();
 const restoredFromLink = applyConfigFromUrl();
 render();
@@ -1302,3 +1335,8 @@ if (syncConfig.autoSync && syncConfig.token && syncConfig.gistId) {
     pullSync({ silent: true }).catch(() => {});
   }, 800);
 }
+// Synchro quasi temps reel : au retour sur l'app et toutes les 60 s tant
+// qu'elle est visible (bien sous les 5000 requetes/h autorisees par GitHub).
+document.addEventListener("visibilitychange", liveSyncTick);
+window.addEventListener("focus", liveSyncTick);
+setInterval(liveSyncTick, 60000);
