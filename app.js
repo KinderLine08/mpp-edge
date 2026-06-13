@@ -1,4 +1,4 @@
-const APP_VERSION = "v19";
+const APP_VERSION = "v20";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -532,17 +532,31 @@ function calculateMatch(match) {
     })
     .sort((a, b) => b.ev - a.ev);
 
-  const bestIssue = Object.entries(issueEv)
-    .filter(([, ev]) => Number.isFinite(ev))
-    .sort((a, b) => b[1] - a[1])[0]?.[0];
-  const recommendation = chooseRobustScore(scores, state.settings.riskMode);
+  const bestIssue = chooseAnchorIssue(issueEv, probabilities, state.settings.riskMode);
+  // En equilibre/conservateur, on ancre la reco sur l'issue retenue : un edge
+  // de bonus (la partie la plus bruitee du modele) ne doit pas faire basculer
+  // vers une issue nettement moins probable sur une quasi-egalite d'EV.
+  // L'agressif garde l'EV de score pure (recherche de variance assumee).
+  const aggressive = state.settings.riskMode === "aggressive";
+  const candidateScores =
+    aggressive || !bestIssue ? scores : scores.filter((score) => score.issue === bestIssue);
+  const recommendation = chooseRobustScore(candidateScores.length ? candidateScores : scores, state.settings.riskMode);
   const actual = calculateActualPoints(match, recommendation, scores);
+
+  // Le score le mieux paye est sur une autre issue que la reco ancree : on
+  // a ecarte un pari de bonus sur une issue moins sure -> on le signale.
+  const topScoreIssue = scores[0]?.issue;
+  const closeIssue =
+    !aggressive && bestIssue && topScoreIssue && topScoreIssue !== bestIssue
+      ? { picked: bestIssue, over: topScoreIssue }
+      : null;
 
   return {
     resultMarket,
     probabilities,
     issueEv,
     bestIssue,
+    closeIssue,
     lambdas,
     scores,
     recommendation,
@@ -555,6 +569,18 @@ function calculateMatch(match) {
       Number.isFinite(match.odds?.draw) &&
       Number.isFinite(match.odds?.away),
   };
+}
+
+function chooseAnchorIssue(issueEv, probabilities, riskMode) {
+  const entries = Object.entries(issueEv).filter(([, ev]) => Number.isFinite(ev));
+  if (!entries.length) return null;
+  entries.sort((a, b) => b[1] - a[1]);
+  if (riskMode === "aggressive") return entries[0][0];
+
+  // Issues a quasi-egalite d'EV avec la meilleure : on tranche par proba.
+  const margin = riskMode === "conservative" ? 3 : 1.5;
+  const near = entries.filter(([, ev]) => entries[0][1] - ev <= margin);
+  return [...near].sort((a, b) => (probabilities[b[0]] || 0) - (probabilities[a[0]] || 0))[0][0];
 }
 
 function chooseRobustScore(scores, riskMode) {
@@ -836,6 +862,11 @@ function renderPreview() {
     <div class="notice">
       <strong>Decision: ${rec ? `${rec.home}-${rec.away}` : "-"}</strong>
       <p>Modele buts: ${formatNumber(calc.lambdas.lambdaHome, 2)} - ${formatNumber(calc.lambdas.lambdaAway, 2)} xG. TRJ ${formatPercent(calc.resultMarket.trj, 1)}.</p>
+      ${
+        calc.closeIssue
+          ? `<p>Le score le mieux paye est sur ${outcomeLabel(calc.closeIssue.over)} (moins probable). Reco ancree sur ${outcomeLabel(calc.closeIssue.picked)}, l'issue plus sure. Passe en agressif pour viser ${outcomeLabel(calc.closeIssue.over)}.</p>`
+          : ""
+      }
       ${
         Number.isFinite(match.played?.home) && Number.isFinite(match.played?.away)
           ? `<p>Prono joue: ${match.played.home}-${match.played.away}${
