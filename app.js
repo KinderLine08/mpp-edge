@@ -1,4 +1,4 @@
-const APP_VERSION = "v21";
+const APP_VERSION = "v22";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -104,10 +104,12 @@ const fields = {
   under25: document.querySelector("#under25"),
   bttsYes: document.querySelector("#bttsYes"),
   bttsNo: document.querySelector("#bttsNo"),
-  homeOver15: document.querySelector("#homeOver15"),
-  homeUnder15: document.querySelector("#homeUnder15"),
-  awayOver05: document.querySelector("#awayOver05"),
-  awayUnder05: document.querySelector("#awayUnder05"),
+  homeLine: document.querySelector("#homeLine"),
+  homeOver: document.querySelector("#homeOver"),
+  homeUnder: document.querySelector("#homeUnder"),
+  awayLine: document.querySelector("#awayLine"),
+  awayOver: document.querySelector("#awayOver"),
+  awayUnder: document.querySelector("#awayUnder"),
   correctScoreText: document.querySelector("#correctScoreText"),
   rarityBonusText: document.querySelector("#rarityBonusText"),
   playedHome: document.querySelector("#playedHome"),
@@ -348,20 +350,22 @@ function fitLambdas(match, marketProbabilities) {
     yes: match.markets?.bttsYes,
     no: match.markets?.bttsNo,
   });
+  // Lignes par equipe flexibles (0.5/1.5/2.5...). Compat avec l'ancien format
+  // fige a 1.5 (domicile) et 0.5 (exterieur).
+  const homeLine = Number.isFinite(match.markets?.homeLine) ? match.markets.homeLine : 1.5;
+  const awayLine = Number.isFinite(match.markets?.awayLine) ? match.markets.awayLine : 0.5;
   const homeTotal = normalizeOdds({
-    over: match.markets?.homeOver15,
-    under: match.markets?.homeUnder15,
+    over: match.markets?.homeOver ?? match.markets?.homeOver15,
+    under: match.markets?.homeUnder ?? match.markets?.homeUnder15,
   });
   const awayTotal = normalizeOdds({
-    over: match.markets?.awayOver05,
-    under: match.markets?.awayUnder05,
+    over: match.markets?.awayOver ?? match.markets?.awayOver05,
+    under: match.markets?.awayUnder ?? match.markets?.awayUnder05,
   });
 
   const targetTotal = solveLambdaForOver(2.5, totalMarket.probabilities.over);
-  const targetHome = solveLambdaForOver(1.5, homeTotal.probabilities.over);
-  const targetAway = Number.isFinite(awayTotal.probabilities.over)
-    ? -Math.log(Math.max(0.001, 1 - awayTotal.probabilities.over))
-    : null;
+  const targetHome = solveLambdaForOver(homeLine, homeTotal.probabilities.over);
+  const targetAway = solveLambdaForOver(awayLine, awayTotal.probabilities.over);
 
   let best = null;
   const candidateHome = [];
@@ -656,10 +660,12 @@ function matchFromForm() {
       under25: parseNumber(fields.under25.value),
       bttsYes: parseNumber(fields.bttsYes.value),
       bttsNo: parseNumber(fields.bttsNo.value),
-      homeOver15: parseNumber(fields.homeOver15.value),
-      homeUnder15: parseNumber(fields.homeUnder15.value),
-      awayOver05: parseNumber(fields.awayOver05.value),
-      awayUnder05: parseNumber(fields.awayUnder05.value),
+      homeLine: parseNumber(fields.homeLine.value),
+      homeOver: parseNumber(fields.homeOver.value),
+      homeUnder: parseNumber(fields.homeUnder.value),
+      awayLine: parseNumber(fields.awayLine.value),
+      awayOver: parseNumber(fields.awayOver.value),
+      awayUnder: parseNumber(fields.awayUnder.value),
     },
     correctScoreText: fields.correctScoreText.value.trim(),
     rarityBonusText: fields.rarityBonusText.value.trim(),
@@ -695,10 +701,12 @@ function fillForm(match) {
   fields.under25.value = match?.markets?.under25 ?? "";
   fields.bttsYes.value = match?.markets?.bttsYes ?? "";
   fields.bttsNo.value = match?.markets?.bttsNo ?? "";
-  fields.homeOver15.value = match?.markets?.homeOver15 ?? "";
-  fields.homeUnder15.value = match?.markets?.homeUnder15 ?? "";
-  fields.awayOver05.value = match?.markets?.awayOver05 ?? "";
-  fields.awayUnder05.value = match?.markets?.awayUnder05 ?? "";
+  fields.homeLine.value = match?.markets?.homeLine ?? 1.5;
+  fields.homeOver.value = match?.markets?.homeOver ?? match?.markets?.homeOver15 ?? "";
+  fields.homeUnder.value = match?.markets?.homeUnder ?? match?.markets?.homeUnder15 ?? "";
+  fields.awayLine.value = match?.markets?.awayLine ?? 0.5;
+  fields.awayOver.value = match?.markets?.awayOver ?? match?.markets?.awayOver05 ?? "";
+  fields.awayUnder.value = match?.markets?.awayUnder ?? match?.markets?.awayUnder05 ?? "";
   fields.correctScoreText.value = match?.correctScoreText || "";
   fields.rarityBonusText.value = match?.rarityBonusText || "";
   fields.playedHome.value = match?.played?.home ?? "";

@@ -189,22 +189,41 @@
             <h3>Team totals</h3>
             <span>optionnel</span>
           </div>
-          <div class="form-grid two">
+          <div class="helper">Choisis la ligne que le book propose pour chaque equipe (souvent 0.5 pour l'outsider, 1.5+ pour le favori). Laisse vide si la ligne est grisee, ca n'empeche pas le calcul.</div>
+          <div class="form-grid three">
             <label>
-              Equipe 1 over 1.5
-              <input id="homeOver15" inputmode="decimal" placeholder="1.714" />
+              Ligne equipe 1
+              <select id="homeLine">
+                <option value="0.5">0.5</option>
+                <option value="1.5" selected>1.5</option>
+                <option value="2.5">2.5</option>
+                <option value="3.5">3.5</option>
+              </select>
             </label>
             <label>
-              Equipe 1 under 1.5
-              <input id="homeUnder15" inputmode="decimal" placeholder="2.15" />
+              Eq. 1 over
+              <input id="homeOver" inputmode="decimal" placeholder="1.714" />
             </label>
             <label>
-              Equipe 2 over 0.5
-              <input id="awayOver05" inputmode="decimal" placeholder="2.13" />
+              Eq. 1 under
+              <input id="homeUnder" inputmode="decimal" placeholder="2.15" />
             </label>
             <label>
-              Equipe 2 under 0.5
-              <input id="awayUnder05" inputmode="decimal" placeholder="1.729" />
+              Ligne equipe 2
+              <select id="awayLine">
+                <option value="0.5" selected>0.5</option>
+                <option value="1.5">1.5</option>
+                <option value="2.5">2.5</option>
+                <option value="3.5">3.5</option>
+              </select>
+            </label>
+            <label>
+              Eq. 2 over
+              <input id="awayOver" inputmode="decimal" placeholder="2.13" />
+            </label>
+            <label>
+              Eq. 2 under
+              <input id="awayUnder" inputmode="decimal" placeholder="1.729" />
             </label>
           </div>
 
