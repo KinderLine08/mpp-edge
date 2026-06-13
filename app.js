@@ -1,4 +1,4 @@
-const APP_VERSION = "v25";
+const APP_VERSION = "v26";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -42,6 +42,10 @@ const els = {
   x2Hint: document.querySelector("#x2Hint"),
   matchCount: document.querySelector("#matchCount"),
   matchList: document.querySelector("#matchList"),
+  perfPanel: document.querySelector("#perfPanel"),
+  perfSummary: document.querySelector("#perfSummary"),
+  perfBars: document.querySelector("#perfBars"),
+  perfCum: document.querySelector("#perfCum"),
   emptyState: document.querySelector("#emptyState"),
   matchFilter: document.querySelector("#matchFilter"),
   addMatchButton: document.querySelector("#addMatchButton"),
@@ -752,8 +756,98 @@ function toDatetimeLocal(iso) {
 function render() {
   renderSummary();
   renderMatchList();
+  renderPerformance();
   renderImportMatchOptions();
   saveState();
+}
+
+function perfBarsSvg(data) {
+  const W = 340;
+  const H = 180;
+  const padL = 10;
+  const padR = 10;
+  const padB = 30;
+  const plotH = H - 20 - padB;
+  const yB = H - padB;
+  const groupW = (W - padL - padR) / data.length;
+  const barW = Math.min(26, groupW * 0.34);
+  const maxVal = Math.max(...data.flatMap((d) => [d.ev, d.real]), 1) * 1.14;
+  const bar = (x, val, fill) => {
+    const h = Math.max(0, (val / maxVal) * plotH);
+    const y = yB - h;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${fill}"></rect><text x="${(x + barW / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text)">${formatNumber(val, 0)}</text>`;
+  };
+  let body = `<line x1="${padL}" y1="${yB}" x2="${W - padR}" y2="${yB}" stroke="var(--line)" stroke-width="1"></line>`;
+  data.forEach((d, i) => {
+    const cx = padL + groupW * i + groupW / 2;
+    body += bar(cx - barW - 1.5, d.ev, "var(--muted)");
+    body += bar(cx + 1.5, d.real, "var(--primary)");
+    body += `<text x="${cx.toFixed(1)}" y="${(yB + 14).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${d.label}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Prevu contre reel par match">${body}</svg>`;
+}
+
+function perfCumSvg(data) {
+  if (data.length < 2) return "";
+  const W = 340;
+  const H = 150;
+  const padL = 10;
+  const padR = 10;
+  const padB = 26;
+  const plotW = W - padL - padR;
+  const plotH = H - 14 - padB;
+  const yB = H - padB;
+  let cumEv = 0;
+  let cumReal = 0;
+  const pts = data.map((d, i) => {
+    cumEv += d.ev;
+    cumReal += d.real;
+    return { x: padL + (plotW * i) / (data.length - 1), ce: cumEv, cr: cumReal, label: d.label };
+  });
+  const maxCum = Math.max(pts[pts.length - 1].ce, pts[pts.length - 1].cr, 1) * 1.1;
+  const y = (v) => yB - (v / maxCum) * plotH;
+  const line = (key, stroke, dash) => {
+    const poly = pts.map((p) => `${p.x.toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
+    const dots = pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${y(p[key]).toFixed(1)}" r="2.5" fill="${stroke}"></circle>`).join("");
+    return `<polyline points="${poly}" fill="none" stroke="${stroke}" stroke-width="2"${dash ? ' stroke-dasharray="5 4"' : ""}></polyline>${dots}`;
+  };
+  let body = `<line x1="${padL}" y1="${yB}" x2="${W - padR}" y2="${yB}" stroke="var(--line)" stroke-width="1"></line>`;
+  body += line("ce", "var(--muted)", true);
+  body += line("cr", "var(--primary)", false);
+  body += pts
+    .map((p) => `<text x="${p.x.toFixed(1)}" y="${(yB + 14).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${p.label}</text>`)
+    .join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="EV cumulee contre reel cumule">${body}</svg>`;
+}
+
+function renderPerformance() {
+  if (!els.perfPanel) return;
+  const items = state.matches
+    .map((match) => ({ match, calc: calculateMatch(match) }))
+    .filter((item) => item.calc.actual)
+    .sort((a, b) => {
+      const ad = a.match.kickoff ? new Date(a.match.kickoff).getTime() : Number.MAX_SAFE_INTEGER;
+      const bd = b.match.kickoff ? new Date(b.match.kickoff).getTime() : Number.MAX_SAFE_INTEGER;
+      return ad - bd;
+    });
+
+  if (!items.length) {
+    els.perfPanel.hidden = true;
+    return;
+  }
+  els.perfPanel.hidden = false;
+
+  const data = items.map((item) => ({
+    label: (item.match.homeTeam || "?").split(" ")[0].slice(0, 8),
+    ev: item.calc.recommendation?.ev || 0,
+    real: item.calc.actual.points || 0,
+  }));
+  const totalEv = data.reduce((sum, d) => sum + d.ev, 0);
+  const totalReal = data.reduce((sum, d) => sum + d.real, 0);
+  const diff = totalReal - totalEv;
+  els.perfSummary.textContent = `${formatNumber(totalReal, 0)} reels / ${formatNumber(totalEv, 1)} prevus · ecart ${diff >= 0 ? "+" : ""}${formatNumber(diff, 1)}`;
+  els.perfBars.innerHTML = perfBarsSvg(data);
+  els.perfCum.innerHTML = perfCumSvg(data);
 }
 
 function renderSummary() {

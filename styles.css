@@ -338,6 +338,50 @@ textarea {
   outline: 2px dashed rgba(163, 93, 0, 0.45);
 }
 
+.perf-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.perf-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.perf-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.perf-dash {
+  width: 16px;
+  height: 0;
+  border-top: 2px solid var(--primary);
+}
+
+.perf-dash.prevu {
+  border-top-style: dashed;
+  border-top-color: var(--muted);
+}
+
+.perf-dot.prevu {
+  background: var(--muted);
+}
+
+.perf-dot.reel {
+  background: var(--primary);
+}
+
+.perf-chart {
+  margin-bottom: 14px;
+}
+
 .close-issue-hint {
   margin: -4px 0 12px;
   color: var(--warn);

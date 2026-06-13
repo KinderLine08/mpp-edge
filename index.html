@@ -63,6 +63,25 @@
             <p>Rentre les points MPP et les cotes 1/N/2. L'app calcule le TRJ, les probas sans marge et le meilleur prono.</p>
           </div>
         </section>
+
+        <section class="panel" id="perfPanel" hidden>
+          <div class="panel-header">
+            <div>
+              <h2>EV vs reel</h2>
+              <p id="perfSummary">-</p>
+            </div>
+          </div>
+          <div class="perf-legend">
+            <span><i class="perf-dot prevu"></i>Prevu (EV)</span>
+            <span><i class="perf-dot reel"></i>Reel</span>
+          </div>
+          <div id="perfBars" class="perf-chart"></div>
+          <div class="perf-legend">
+            <span><i class="perf-dash prevu"></i>Prevu cumule</span>
+            <span><i class="perf-dash reel"></i>Reel cumule</span>
+          </div>
+          <div id="perfCum" class="perf-chart"></div>
+        </section>
       </main>
     </div>
 
