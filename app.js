@@ -1,4 +1,4 @@
-const APP_VERSION = "v24";
+const APP_VERSION = "v25";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -1371,20 +1371,30 @@ async function runOcr() {
   els.ocrProgress.hidden = false;
   els.ocrProgress.value = 0.05;
   els.runOcrButton.disabled = true;
-  els.importPreview.innerHTML = "<span class='helper'>Lecture en cours...</span>";
+  els.importPreview.innerHTML = "<span class='helper'>Chargement du moteur OCR... (1er essai: telechargement, peut prendre 10-20 s)</span>";
 
   try {
     const Tesseract = await ensureTesseract();
-    const result = await Tesseract.recognize(file, "eng+fra", {
+    els.importPreview.innerHTML = "<span class='helper'>Lecture de l'image...</span>";
+    // "eng" seul : modele plus leger a telecharger et meilleur sur les
+    // chiffres et noms latins qu'un pack multilingue.
+    const result = await Tesseract.recognize(file, "eng", {
       logger: (message) => {
         if (message.status === "recognizing text") els.ocrProgress.value = message.progress || 0.2;
       },
     });
-    els.importText.value = result.data.text.trim();
+    const text = (result.data.text || "").trim();
+    els.importText.value = text;
     els.ocrProgress.value = 1;
-    previewImport();
+    if (!text) {
+      els.importPreview.innerHTML =
+        "<span class='helper'>Aucun texte lu sur l'image. Reessaie avec une capture nette et recadree, ou colle le texte directement.</span>";
+    } else {
+      previewImport();
+    }
   } catch (error) {
-    els.importPreview.innerHTML = `<span class='helper'>OCR indisponible. Colle le texte ou saisis les chiffres. ${error.message || ""}</span>`;
+    // Le plus souvent : reseau/CDN qui bloque le telechargement du moteur.
+    els.importPreview.innerHTML = `<span class='helper' style="color:var(--danger)">OCR impossible (${error.message || "moteur non charge, reseau ?"}). Colle le texte a la place.</span>`;
   } finally {
     els.runOcrButton.disabled = false;
     setTimeout(() => {
