@@ -1,4 +1,4 @@
-const APP_VERSION = "v23";
+const APP_VERSION = "v24";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -408,29 +408,35 @@ function parseCorrectScoreLines(text) {
   const oddOnly = /^(\d+(?:\.\d+)?)$/;
 
   const rows = [];
-  const push = (home, away, odd) => {
-    if (Number.isFinite(home) && Number.isFinite(away) && home <= 9 && away <= 9 && Number.isFinite(odd) && odd > 1) {
-      rows.push({ home, away, odd });
-    }
-  };
+  const scoresQueue = [];
+  const oddsQueue = [];
+  const valid = (home, away, odd) =>
+    Number.isFinite(home) && Number.isFinite(away) && home <= 9 && away <= 9 && Number.isFinite(odd) && odd > 1;
 
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const m = line.match(withOddsDash) || line.match(withOddsLoose);
-    if (m) {
-      push(Number(m[1]), Number(m[2]), Number(m[3]));
+  for (const line of lines) {
+    // Ligne purement numerique = une cote isolee (colonne de droite d'un
+    // tableau a deux colonnes).
+    const lone = line.match(oddOnly);
+    if (lone) {
+      if (Number(lone[1]) > 1) oddsQueue.push(Number(lone[1]));
       continue;
     }
-    // Score seul sur une ligne, cote sur la suivante : copie d'un tableau a
-    // deux colonnes (score a gauche, cote a droite) depuis le book.
-    const s = line.match(scoreOnly);
-    if (s) {
-      const o = (lines[i + 1] || "").match(oddOnly);
-      if (o && Number(o[1]) > 1) {
-        push(Number(s[1]), Number(s[2]), Number(o[1]));
-        i += 1;
-      }
+    const m = line.match(withOddsDash) || line.match(withOddsLoose);
+    if (m && valid(Number(m[1]), Number(m[2]), Number(m[3]))) {
+      rows.push({ home: Number(m[1]), away: Number(m[2]), odd: Number(m[3]) });
+      continue;
     }
+    const s = line.match(scoreOnly);
+    if (s && Number(s[1]) <= 9 && Number(s[2]) <= 9) scoresQueue.push({ home: Number(s[1]), away: Number(s[2]) });
+  }
+
+  // Tableau a deux colonnes : scores et cotes sur des lignes separees, qu'ils
+  // soient entrelaces (score, cote, score, cote) ou groupes par l'OCR (tous
+  // les scores puis toutes les cotes). On apparie dans l'ordre.
+  const pairs = Math.min(scoresQueue.length, oddsQueue.length);
+  for (let i = 0; i < pairs; i += 1) {
+    const s = scoresQueue[i];
+    if (valid(s.home, s.away, oddsQueue[i])) rows.push({ home: s.home, away: s.away, odd: oddsQueue[i] });
   }
 
   const unique = new Map();
