@@ -1,4 +1,4 @@
-const APP_VERSION = "v20";
+const APP_VERSION = "v21";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -793,9 +793,17 @@ function renderMatchList() {
     evStrip.innerHTML = ["home", "draw", "away"]
       .map((key) => {
         const best = calc.bestIssue === key ? " best" : "";
-        return `<div class="ev-cell${best}"><span>${outcomeLabel(key)} ${formatPercent(calc.probabilities[key] || 0, 1)}</span><strong>${formatNumber(calc.issueEv[key], 1)}</strong></div>`;
+        const paid = calc.closeIssue?.over === key ? " paid" : "";
+        return `<div class="ev-cell${best}${paid}"><span>${outcomeLabel(key)} ${formatPercent(calc.probabilities[key] || 0, 1)}</span><strong>${formatNumber(calc.issueEv[key], 1)}</strong></div>`;
       })
       .join("");
+
+    if (calc.closeIssue) {
+      const hint = document.createElement("p");
+      hint.className = "helper close-issue-hint";
+      hint.textContent = `Issue serree: ${outcomeLabel(calc.closeIssue.over)} mieux paye mais moins probable que ${outcomeLabel(calc.closeIssue.picked)}.`;
+      evStrip.insertAdjacentElement("afterend", hint);
+    }
 
     const status = node.querySelector(".status-pill");
     if (calc.actual) {

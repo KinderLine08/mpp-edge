@@ -334,6 +334,15 @@ textarea {
   background: #e7f6f1;
 }
 
+.ev-cell.paid {
+  outline: 2px dashed rgba(163, 93, 0, 0.45);
+}
+
+.close-issue-hint {
+  margin: -4px 0 12px;
+  color: var(--warn);
+}
+
 .ev-cell span {
   display: block;
   color: var(--muted);
