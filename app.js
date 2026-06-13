@@ -1,4 +1,4 @@
-const APP_VERSION = "v22";
+const APP_VERSION = "v23";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -395,25 +395,41 @@ function fitLambdas(match, marketProbabilities) {
 }
 
 function parseCorrectScoreLines(text) {
-  const rows = [];
+  // Virgule -> point partout : gere les separateurs ("0, Suisse 0") et les
+  // cotes a decimale europeenne ("17,980").
   const lines = String(text || "")
     .split(/\n+/)
-    .map((line) => line.trim())
+    .map((line) => line.replace(/,/g, ".").trim())
     .filter(Boolean);
 
-  for (const line of lines) {
-    const compact = line.replace(",", ".");
-    let match = compact.match(/(?:^|\D)(\d{1,2})\s*[-:]\s*(\d{1,2})(?:\D+)(\d+(?:\.\d+)?)(?:\D*)$/);
-    if (!match) {
-      match = compact.match(/(?:^|\D)(\d{1,2})(?:\D+)(\d{1,2})(?:\D+)(\d+(?:\.\d+)?)(?:\D*)$/);
-    }
-    if (!match) continue;
+  const withOddsDash = /(?:^|\D)(\d{1,2})\s*[-:]\s*(\d{1,2})\D+(\d+(?:\.\d+)?)\D*$/;
+  const withOddsLoose = /(?:^|\D)(\d{1,2})\D+(\d{1,2})\D+(\d+(?:\.\d+)?)\D*$/;
+  const scoreOnly = /(?:^|\D)(\d{1,2})\D+(\d{1,2})\s*$/;
+  const oddOnly = /^(\d+(?:\.\d+)?)$/;
 
-    const home = Number(match[1]);
-    const away = Number(match[2]);
-    const odd = Number(match[3]);
-    if (Number.isFinite(home) && Number.isFinite(away) && Number.isFinite(odd) && odd > 1) {
+  const rows = [];
+  const push = (home, away, odd) => {
+    if (Number.isFinite(home) && Number.isFinite(away) && home <= 9 && away <= 9 && Number.isFinite(odd) && odd > 1) {
       rows.push({ home, away, odd });
+    }
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const m = line.match(withOddsDash) || line.match(withOddsLoose);
+    if (m) {
+      push(Number(m[1]), Number(m[2]), Number(m[3]));
+      continue;
+    }
+    // Score seul sur une ligne, cote sur la suivante : copie d'un tableau a
+    // deux colonnes (score a gauche, cote a droite) depuis le book.
+    const s = line.match(scoreOnly);
+    if (s) {
+      const o = (lines[i + 1] || "").match(oddOnly);
+      if (o && Number(o[1]) > 1) {
+        push(Number(s[1]), Number(s[2]), Number(o[1]));
+        i += 1;
+      }
     }
   }
 
