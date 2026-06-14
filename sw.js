@@ -1,4 +1,4 @@
-const CACHE_NAME = "mpp-edge-v26";
+const CACHE_NAME = "mpp-edge-v27";
 const ASSETS = [
   "./",
   "./index.html",

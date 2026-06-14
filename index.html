@@ -178,16 +178,26 @@
             <h3>Total buts</h3>
             <span>optionnel</span>
           </div>
-          <div class="form-grid two">
+          <div class="form-grid three">
             <label>
-              Over 2.5
+              Ligne total
+              <select id="totalLine">
+                <option value="1.5">1.5</option>
+                <option value="2.5" selected>2.5</option>
+                <option value="3.5">3.5</option>
+                <option value="4.5">4.5</option>
+              </select>
+            </label>
+            <label>
+              Over
               <input id="over25" inputmode="decimal" placeholder="2.18" />
             </label>
             <label>
-              Under 2.5
+              Under
               <input id="under25" inputmode="decimal" placeholder="1.735" />
             </label>
           </div>
+          <div class="helper">Choisis une ligne en .5 que le book affiche (ex. 4.5 pour un match prolifique). N'utilise pas une ligne en .25 (4.25) ni une autre que celle saisie. Laisse vide si tu ne l'as pas.</div>
 
           <div class="section-title">
             <h3>BTTS</h3>

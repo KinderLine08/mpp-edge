@@ -1,4 +1,4 @@
-const APP_VERSION = "v26";
+const APP_VERSION = "v27";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -104,6 +104,7 @@ const fields = {
   oddsHome: document.querySelector("#oddsHome"),
   oddsDraw: document.querySelector("#oddsDraw"),
   oddsAway: document.querySelector("#oddsAway"),
+  totalLine: document.querySelector("#totalLine"),
   over25: document.querySelector("#over25"),
   under25: document.querySelector("#under25"),
   bttsYes: document.querySelector("#bttsYes"),
@@ -367,7 +368,8 @@ function fitLambdas(match, marketProbabilities) {
     under: match.markets?.awayUnder ?? match.markets?.awayUnder05,
   });
 
-  const targetTotal = solveLambdaForOver(2.5, totalMarket.probabilities.over);
+  const totalLine = Number.isFinite(match.markets?.totalLine) ? match.markets.totalLine : 2.5;
+  const targetTotal = solveLambdaForOver(totalLine, totalMarket.probabilities.over);
   const targetHome = solveLambdaForOver(homeLine, homeTotal.probabilities.over);
   const targetAway = solveLambdaForOver(awayLine, awayTotal.probabilities.over);
 
@@ -682,6 +684,7 @@ function matchFromForm() {
       away: parseNumber(fields.oddsAway.value),
     },
     markets: {
+      totalLine: parseNumber(fields.totalLine.value),
       over25: parseNumber(fields.over25.value),
       under25: parseNumber(fields.under25.value),
       bttsYes: parseNumber(fields.bttsYes.value),
@@ -723,6 +726,7 @@ function fillForm(match) {
   fields.oddsHome.value = match?.odds?.home ?? "";
   fields.oddsDraw.value = match?.odds?.draw ?? "";
   fields.oddsAway.value = match?.odds?.away ?? "";
+  fields.totalLine.value = match?.markets?.totalLine ?? 2.5;
   fields.over25.value = match?.markets?.over25 ?? "";
   fields.under25.value = match?.markets?.under25 ?? "";
   fields.bttsYes.value = match?.markets?.bttsYes ?? "";
