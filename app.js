@@ -1,4 +1,4 @@
-const APP_VERSION = "v27";
+const APP_VERSION = "v28";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -843,7 +843,9 @@ function renderPerformance() {
 
   const data = items.map((item) => ({
     label: (item.match.homeTeam || "?").split(" ")[0].slice(0, 8),
-    ev: item.calc.recommendation?.ev || 0,
+    // EV doublee si le x2 est pose : on compare alors a des points reels eux
+    // aussi doubles (E[2X] = 2 E[X]).
+    ev: (item.calc.recommendation?.ev || 0) * (item.match.x2Used ? 2 : 1),
     real: item.calc.actual.points || 0,
   }));
   const totalEv = data.reduce((sum, d) => sum + d.ev, 0);
@@ -859,7 +861,8 @@ function renderSummary() {
   // EV totale = matchs restants uniquement ; les matchs joues sont dans
   // "Points reels".
   const totalEv = calculations.reduce(
-    (sum, item) => sum + (!item.calc.actual && item.calc.recommendation ? item.calc.recommendation.ev : 0),
+    (sum, item) =>
+      sum + (!item.calc.actual && item.calc.recommendation ? item.calc.recommendation.ev * (item.match.x2Used ? 2 : 1) : 0),
     0,
   );
   const completed = calculations.filter((item) => item.calc.actual);
