@@ -1,4 +1,4 @@
-const APP_VERSION = "v29";
+const APP_VERSION = "v30";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -11,6 +11,7 @@ const defaultState = {
   settings: {
     x2Threshold: 45,
     riskMode: "balanced",
+    dixonColes: true,
   },
 };
 
@@ -75,6 +76,7 @@ const els = {
   closeSettingsDialog: document.querySelector("#closeSettingsDialog"),
   x2Threshold: document.querySelector("#x2Threshold"),
   riskMode: document.querySelector("#riskMode"),
+  dixonColes: document.querySelector("#dixonColes"),
   syncToken: document.querySelector("#syncToken"),
   syncGistId: document.querySelector("#syncGistId"),
   autoSync: document.querySelector("#autoSync"),
@@ -304,23 +306,37 @@ function solveLambdaForOver(line, probability) {
   return (low + high) / 2;
 }
 
-function scoreDistribution(lambdaHome, lambdaAway, maxGoals = 8) {
-  const scores = [];
+// Dixon-Coles : le foot reel a une correlation que le Poisson independant
+// ignore -> 0-0 et 1-1 sont plus frequents, 1-0 et 0-1 un peu moins. rho < 0
+// gonfle les nuls a faible score. rho = 0 redonne le Poisson pur.
+const DC_RHO = -0.13;
+
+function dcTau(home, away, lambdaHome, lambdaAway, rho) {
+  if (!rho) return 1;
+  if (home === 0 && away === 0) return Math.max(0, 1 - lambdaHome * lambdaAway * rho);
+  if (home === 0 && away === 1) return Math.max(0, 1 + lambdaHome * rho);
+  if (home === 1 && away === 0) return Math.max(0, 1 + lambdaAway * rho);
+  if (home === 1 && away === 1) return Math.max(0, 1 - rho);
+  return 1;
+}
+
+function scoreDistribution(lambdaHome, lambdaAway, maxGoals = 8, rho = 0) {
   const homeP = Array.from({ length: maxGoals + 1 }, (_, goal) => poissonPmf(lambdaHome, goal));
   const awayP = Array.from({ length: maxGoals + 1 }, (_, goal) => poissonPmf(lambdaAway, goal));
-  const mass = homeP.reduce((a, b) => a + b, 0) * awayP.reduce((a, b) => a + b, 0);
 
+  // La correction casse la separabilite : on pondere la matrice puis on
+  // renormalise sur la somme reelle (identique au Poisson pur quand rho = 0).
+  const grid = [];
+  let total = 0;
   for (let home = 0; home <= maxGoals; home += 1) {
     for (let away = 0; away <= maxGoals; away += 1) {
-      scores.push({
-        home,
-        away,
-        probability: (homeP[home] * awayP[away]) / mass,
-      });
+      const p = homeP[home] * awayP[away] * dcTau(home, away, lambdaHome, lambdaAway, rho);
+      grid.push({ home, away, p });
+      total += p;
     }
   }
 
-  return scores;
+  return grid.map((g) => ({ home: g.home, away: g.away, probability: total > 0 ? g.p / total : 0 }));
 }
 
 function outcomeFromScore(home, away) {
@@ -333,8 +349,8 @@ function outcomeLabel(key) {
   return key === "home" ? "1" : key === "draw" ? "N" : "2";
 }
 
-function calculatePoissonOutcomes(lambdaHome, lambdaAway) {
-  const scores = scoreDistribution(lambdaHome, lambdaAway, 9);
+function calculatePoissonOutcomes(lambdaHome, lambdaAway, rho = 0) {
+  const scores = scoreDistribution(lambdaHome, lambdaAway, 9, rho);
   return scores.reduce(
     (acc, score) => {
       acc[outcomeFromScore(score.home, score.away)] += score.probability;
@@ -380,9 +396,10 @@ function fitLambdas(match, marketProbabilities) {
   for (let h = 0.15; h <= 4.5; h += 0.05) candidateHome.push(Number(h.toFixed(2)));
   for (let a = 0.08; a <= 3.5; a += 0.05) candidateAway.push(Number(a.toFixed(2)));
 
+  const rho = state.settings.dixonColes ? DC_RHO : 0;
   for (const lambdaHome of candidateHome) {
     for (const lambdaAway of candidateAway) {
-      const out = calculatePoissonOutcomes(lambdaHome, lambdaAway);
+      const out = calculatePoissonOutcomes(lambdaHome, lambdaAway, rho);
       let error = 0;
 
       if (Number.isFinite(marketProbabilities.home)) error += 5 * (out.home - marketProbabilities.home) ** 2;
@@ -543,6 +560,7 @@ function calcSignature(match) {
     match.actual,
     match.x2Used,
     state.settings.riskMode,
+    state.settings.dixonColes,
   ]);
 }
 
@@ -570,7 +588,12 @@ function computeMatch(match) {
   };
 
   const lambdas = fitLambdas(match, probabilities);
-  const poissonScores = scoreDistribution(lambdas.lambdaHome, lambdas.lambdaAway, 8);
+  const poissonScores = scoreDistribution(
+    lambdas.lambdaHome,
+    lambdas.lambdaAway,
+    8,
+    state.settings.dixonColes ? DC_RHO : 0,
+  );
   const correctScores = parseCorrectScoreLines(match.correctScoreText);
   const rarityMap = new Map(
     parseCorrectScoreLines(match.rarityBonusText).map((row) => [`${row.home}-${row.away}`, row.odd]),
@@ -1617,6 +1640,7 @@ function bindEvents() {
   els.settingsButton.addEventListener("click", () => {
     els.x2Threshold.value = state.settings.x2Threshold;
     els.riskMode.value = state.settings.riskMode;
+    els.dixonColes.checked = state.settings.dixonColes !== false;
     fillSyncForm();
     els.settingsDialog.showModal();
   });
@@ -1628,6 +1652,11 @@ function bindEvents() {
   });
   els.riskMode.addEventListener("change", () => {
     state.settings.riskMode = els.riskMode.value;
+    markDirty();
+    render();
+  });
+  els.dixonColes.addEventListener("change", () => {
+    state.settings.dixonColes = els.dixonColes.checked;
     markDirty();
     render();
   });
