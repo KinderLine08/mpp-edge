@@ -1,4 +1,4 @@
-const APP_VERSION = "v28";
+const APP_VERSION = "v29";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -529,7 +529,37 @@ function estimateBonus(score, scoreProbability, issueProbability, riskMode, issu
   return 100;
 }
 
+const calcCache = new Map();
+
+function calcSignature(match) {
+  return JSON.stringify([
+    match.mpp,
+    match.odds,
+    match.markets,
+    match.correctScoreText,
+    match.rarityBonusText,
+    match.publicSplit,
+    match.played,
+    match.actual,
+    match.x2Used,
+    state.settings.riskMode,
+  ]);
+}
+
+// Le fit du modele de buts est couteux (recherche sur ~6000 combinaisons par
+// match). On memorise le resultat et on ne recalcule un match que si ses
+// donnees (ou le mode de risque) ont change : les re-rendus de la synchro
+// auto toutes les 12 s redeviennent quasi gratuits.
 function calculateMatch(match) {
+  const sig = calcSignature(match);
+  const cached = match.id ? calcCache.get(match.id) : null;
+  if (cached && cached.sig === sig) return cached.calc;
+  const calc = computeMatch(match);
+  if (match.id) calcCache.set(match.id, { sig, calc });
+  return calc;
+}
+
+function computeMatch(match) {
   const resultMarket = normalizeOdds(match.odds || {});
   const probabilities = resultMarket.probabilities;
   const points = match.mpp || {};
