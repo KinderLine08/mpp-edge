@@ -1,4 +1,4 @@
-const APP_VERSION = "v30";
+const APP_VERSION = "v31";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -819,61 +819,81 @@ function render() {
 }
 
 function perfBarsSvg(data) {
-  const W = 340;
-  const H = 180;
-  const padL = 10;
-  const padR = 10;
-  const padB = 30;
-  const plotH = H - 20 - padB;
+  const n = data.length;
+  // Au-dela de 10 matchs, les libelles et chiffres se chevauchent : on bascule
+  // sur des barres fines defilables, le detail passe par l'info-bulle (title).
+  const compact = n > 10;
+  const H = 170;
+  const padL = 8;
+  const padR = 8;
+  const padT = compact ? 10 : 18;
+  const padB = compact ? 10 : 28;
+  const plotH = H - padT - padB;
   const yB = H - padB;
-  const groupW = (W - padL - padR) / data.length;
-  const barW = Math.min(26, groupW * 0.34);
-  const maxVal = Math.max(...data.flatMap((d) => [d.ev, d.real]), 1) * 1.14;
-  const bar = (x, val, fill) => {
-    const h = Math.max(0, (val / maxVal) * plotH);
-    const y = yB - h;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${fill}"></rect><text x="${(x + barW / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text)">${formatNumber(val, 0)}</text>`;
-  };
-  let body = `<line x1="${padL}" y1="${yB}" x2="${W - padR}" y2="${yB}" stroke="var(--line)" stroke-width="1"></line>`;
+  const W = compact ? Math.max(340, n * 18) : 340;
+  const groupW = (W - padL - padR) / n;
+  const barW = Math.max(2.5, Math.min(26, groupW * 0.36));
+  const maxVal = Math.max(...data.flatMap((d) => [d.ev, d.real]), 1) * (compact ? 1.06 : 1.14);
+  const barH = (v) => Math.max(0, (v / maxVal) * plotH);
+
+  let grid = "";
+  for (let i = 1; i <= 3; i += 1) {
+    const gy = (yB - (plotH * i) / 3).toFixed(1);
+    grid += `<line x1="${padL}" y1="${gy}" x2="${(W - padR).toFixed(1)}" y2="${gy}" stroke="var(--line)" stroke-width="0.5"></line>`;
+  }
+  let body = grid + `<line x1="${padL}" y1="${yB}" x2="${(W - padR).toFixed(1)}" y2="${yB}" stroke="var(--line)" stroke-width="1"></line>`;
   data.forEach((d, i) => {
     const cx = padL + groupW * i + groupW / 2;
-    body += bar(cx - barW - 1.5, d.ev, "var(--muted)");
-    body += bar(cx + 1.5, d.real, "var(--primary)");
-    body += `<text x="${cx.toFixed(1)}" y="${(yB + 14).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${d.label}</text>`;
+    const gap = compact ? 0.6 : 1.5;
+    const x1 = cx - barW - gap;
+    const x2 = cx + gap;
+    const h1 = barH(d.ev);
+    const h2 = barH(d.real);
+    body += `<g><title>${d.label} : prevu ${formatNumber(d.ev, 0)} · reel ${formatNumber(d.real, 0)}</title>`;
+    body += `<rect x="${x1.toFixed(1)}" y="${(yB - h1).toFixed(1)}" width="${barW.toFixed(1)}" height="${h1.toFixed(1)}" rx="1.5" fill="var(--muted)"></rect>`;
+    body += `<rect x="${x2.toFixed(1)}" y="${(yB - h2).toFixed(1)}" width="${barW.toFixed(1)}" height="${h2.toFixed(1)}" rx="1.5" fill="var(--primary)"></rect></g>`;
+    if (!compact) {
+      body += `<text x="${(x1 + barW / 2).toFixed(1)}" y="${(yB - h1 - 4).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text)">${formatNumber(d.ev, 0)}</text>`;
+      body += `<text x="${(x2 + barW / 2).toFixed(1)}" y="${(yB - h2 - 4).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text)">${formatNumber(d.real, 0)}</text>`;
+      body += `<text x="${cx.toFixed(1)}" y="${(yB + 14).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${d.label}</text>`;
+    }
   });
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Prevu contre reel par match">${body}</svg>`;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" ${compact ? `width="${W}" height="${H}"` : 'style="width:100%;height:auto"'} role="img" aria-label="Prevu contre reel par match">${body}</svg>`;
+  return compact ? `<div style="overflow-x:auto">${svg}</div>` : svg;
 }
 
 function perfCumSvg(data) {
   if (data.length < 2) return "";
   const W = 340;
   const H = 150;
-  const padL = 10;
-  const padR = 10;
-  const padB = 26;
+  const padL = 8;
+  const padR = 8;
+  const padT = 10;
+  const padB = 10;
   const plotW = W - padL - padR;
-  const plotH = H - 14 - padB;
+  const plotH = H - padT - padB;
   const yB = H - padB;
   let cumEv = 0;
   let cumReal = 0;
   const pts = data.map((d, i) => {
     cumEv += d.ev;
     cumReal += d.real;
-    return { x: padL + (plotW * i) / (data.length - 1), ce: cumEv, cr: cumReal, label: d.label };
+    return { x: padL + (plotW * i) / (data.length - 1), ce: cumEv, cr: cumReal };
   });
-  const maxCum = Math.max(pts[pts.length - 1].ce, pts[pts.length - 1].cr, 1) * 1.1;
+  const maxCum = Math.max(pts[pts.length - 1].ce, pts[pts.length - 1].cr, 1) * 1.05;
   const y = (v) => yB - (v / maxCum) * plotH;
   const line = (key, stroke, dash) => {
     const poly = pts.map((p) => `${p.x.toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
-    const dots = pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${y(p[key]).toFixed(1)}" r="2.5" fill="${stroke}"></circle>`).join("");
-    return `<polyline points="${poly}" fill="none" stroke="${stroke}" stroke-width="2"${dash ? ' stroke-dasharray="5 4"' : ""}></polyline>${dots}`;
+    return `<polyline points="${poly}" fill="none" stroke="${stroke}" stroke-width="2"${dash ? ' stroke-dasharray="4 4"' : ""}></polyline>`;
   };
-  let body = `<line x1="${padL}" y1="${yB}" x2="${W - padR}" y2="${yB}" stroke="var(--line)" stroke-width="1"></line>`;
+  let grid = "";
+  for (let i = 1; i <= 3; i += 1) {
+    const gy = (yB - (plotH * i) / 3).toFixed(1);
+    grid += `<line x1="${padL}" y1="${gy}" x2="${W - padR}" y2="${gy}" stroke="var(--line)" stroke-width="0.5"></line>`;
+  }
+  let body = grid + `<line x1="${padL}" y1="${yB}" x2="${W - padR}" y2="${yB}" stroke="var(--line)" stroke-width="1"></line>`;
   body += line("ce", "var(--muted)", true);
   body += line("cr", "var(--primary)", false);
-  body += pts
-    .map((p) => `<text x="${p.x.toFixed(1)}" y="${(yB + 14).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${p.label}</text>`)
-    .join("");
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="EV cumulee contre reel cumule">${body}</svg>`;
 }
 
@@ -905,7 +925,9 @@ function renderPerformance() {
   const totalReal = data.reduce((sum, d) => sum + d.real, 0);
   const diff = totalReal - totalEv;
   els.perfSummary.textContent = `${formatNumber(totalReal, 0)} reels / ${formatNumber(totalEv, 1)} prevus · ecart ${diff >= 0 ? "+" : ""}${formatNumber(diff, 1)}`;
-  els.perfBars.innerHTML = perfBarsSvg(data);
+  els.perfBars.innerHTML =
+    perfBarsSvg(data) +
+    (data.length > 10 ? `<div class="helper">Survole une barre pour le detail · fais defiler pour voir tous les matchs.</div>` : "");
   els.perfCum.innerHTML = perfCumSvg(data);
 }
 
