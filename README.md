@@ -50,8 +50,12 @@ proba brute = 1 / cote bookmaker
 overround = somme des probas brutes
 proba sans marge = proba brute / overround
 EV issue = proba sans marge * points MPP
-EV score = EV issue + proba score exact * bonus rarete
+EV score = EV issue + proba score modele * bonus rarete
 ```
+
+L'app ne consomme plus les cotes de score exact : les scores sont estimes par
+le modele de buts a partir des cotes 1/N/2, avec les marches buts optionnels si
+tu les as. Le 1/N/2 reste la seule cote obligatoire hors elimination directe.
 
 Le bonus rarete depend de la repartition des pronos de l'ensemble des
 joueurs MPP, figee au coup d'envoi : il n'est pas connaissable a l'avance.
@@ -64,6 +68,10 @@ bonus reellement obtenu ("Bonus exact reel") pour verifier le calibrage.
 
 Si plusieurs scores ont une EV tres proche, l'app choisit le score le plus
 probable. Cela evite de sur-optimiser un bonus de rarete incertain.
+
+En elimination directe, le score retenu est celui apres 120 minutes : victoire
+en 90 ou en prolongation = 1/2, nul apres prolongation = N. Il faut donc saisir
+les cotes de qualification en plus du 1/N/2 90 min pour corriger les probas.
 
 ## Regles officielles MPP (captures du 11 juin 2026)
 
@@ -94,6 +102,7 @@ Verifiees sur les pages "Regles du jeu" de l'app MPP :
 Sans service payant :
 
 - saisie rapide des points MPP et cotes 1/N/2 ;
+- saisie des cotes de qualification pour les matchs a elimination directe ;
 - collage de texte OCR ;
 - upload de capture depuis iPhone ;
 - OCR navigateur via Tesseract.js si internet est disponible ;

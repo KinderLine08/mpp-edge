@@ -1,4 +1,4 @@
-const APP_VERSION = "v31";
+const APP_VERSION = "v33";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -59,8 +59,6 @@ const els = {
   deleteMatchButton: document.querySelector("#deleteMatchButton"),
   recomputeButton: document.querySelector("#recomputeButton"),
   matchPreview: document.querySelector("#matchPreview"),
-  parseScoresButton: document.querySelector("#parseScoresButton"),
-  scoreParseInfo: document.querySelector("#scoreParseInfo"),
   importDialog: document.querySelector("#importDialog"),
   closeImportDialog: document.querySelector("#closeImportDialog"),
   importKind: document.querySelector("#importKind"),
@@ -106,6 +104,9 @@ const fields = {
   oddsHome: document.querySelector("#oddsHome"),
   oddsDraw: document.querySelector("#oddsDraw"),
   oddsAway: document.querySelector("#oddsAway"),
+  knockout: document.querySelector("#knockout"),
+  qualHome: document.querySelector("#qualHome"),
+  qualAway: document.querySelector("#qualAway"),
   totalLine: document.querySelector("#totalLine"),
   over25: document.querySelector("#over25"),
   under25: document.querySelector("#under25"),
@@ -117,7 +118,6 @@ const fields = {
   awayLine: document.querySelector("#awayLine"),
   awayOver: document.querySelector("#awayOver"),
   awayUnder: document.querySelector("#awayUnder"),
-  correctScoreText: document.querySelector("#correctScoreText"),
   rarityBonusText: document.querySelector("#rarityBonusText"),
   playedHome: document.querySelector("#playedHome"),
   playedAway: document.querySelector("#playedAway"),
@@ -136,12 +136,18 @@ function loadState() {
       ...structuredClone(defaultState),
       ...parsed,
       settings: { ...defaultState.settings, ...(parsed.settings || {}) },
-      matches: Array.isArray(parsed.matches) ? parsed.matches : [],
+      matches: Array.isArray(parsed.matches) ? parsed.matches.map(normalizeMatchRecord) : [],
       deletedMatches: parsed.deletedMatches && typeof parsed.deletedMatches === "object" ? parsed.deletedMatches : {},
     };
   } catch {
     return structuredClone(defaultState);
   }
+}
+
+function normalizeMatchRecord(match) {
+  if (!match || typeof match !== "object") return match;
+  const { correctScoreText: _unusedCorrectScoreText, ...rest } = match;
+  return rest;
 }
 
 function saveState() {
@@ -417,9 +423,9 @@ function fitLambdas(match, marketProbabilities) {
   return best || { lambdaHome: 1.35, lambdaAway: 1.05, error: null };
 }
 
-function parseCorrectScoreLines(text) {
+function parseScoreValueLines(text) {
   // Virgule -> point partout : gere les separateurs ("0, Suisse 0") et les
-  // cotes a decimale europeenne ("17,980").
+  // valeurs a decimale europeenne ("17,980").
   const lines = String(text || "")
     .split(/\n+/)
     .map((line) => line.replace(/,/g, ".").trim())
@@ -453,9 +459,9 @@ function parseCorrectScoreLines(text) {
     if (s && Number(s[1]) <= 9 && Number(s[2]) <= 9) scoresQueue.push({ home: Number(s[1]), away: Number(s[2]) });
   }
 
-  // Tableau a deux colonnes : scores et cotes sur des lignes separees, qu'ils
-  // soient entrelaces (score, cote, score, cote) ou groupes par l'OCR (tous
-  // les scores puis toutes les cotes). On apparie dans l'ordre.
+  // Tableau a deux colonnes : scores et valeurs sur des lignes separees, qu'ils
+  // soient entrelaces (score, valeur, score, valeur) ou groupes par l'OCR
+  // (tous les scores puis toutes les valeurs). On apparie dans l'ordre.
   const pairs = Math.min(scoresQueue.length, oddsQueue.length);
   for (let i = 0; i < pairs; i += 1) {
     const s = scoresQueue[i];
@@ -465,32 +471,6 @@ function parseCorrectScoreLines(text) {
   const unique = new Map();
   for (const row of rows) unique.set(`${row.home}-${row.away}`, row);
   return [...unique.values()];
-}
-
-function blendScoreProbabilities(poissonScores, correctScores) {
-  if (!correctScores?.length) return poissonScores;
-
-  const scoreMap = new Map(poissonScores.map((score) => [`${score.home}-${score.away}`, score]));
-  const enteredMassPoisson = correctScores.reduce((sum, row) => {
-    const key = `${row.home}-${row.away}`;
-    return sum + (scoreMap.get(key)?.probability || 0);
-  }, 0);
-  const rawSum = correctScores.reduce((sum, row) => sum + 1 / row.odd, 0);
-  if (!rawSum || !enteredMassPoisson) return poissonScores;
-
-  const bookProbability = new Map(
-    correctScores.map((row) => [`${row.home}-${row.away}`, ((1 / row.odd) / rawSum) * enteredMassPoisson]),
-  );
-
-  return poissonScores.map((score) => {
-    const key = `${score.home}-${score.away}`;
-    if (!bookProbability.has(key)) return score;
-    return {
-      ...score,
-      probability: 0.55 * score.probability + 0.45 * bookProbability.get(key),
-      source: "blend",
-    };
-  });
 }
 
 function normalizePublicSplit(split) {
@@ -553,12 +533,13 @@ function calcSignature(match) {
     match.mpp,
     match.odds,
     match.markets,
-    match.correctScoreText,
     match.rarityBonusText,
     match.publicSplit,
     match.played,
     match.actual,
     match.x2Used,
+    match.knockout,
+    match.qual,
     state.settings.riskMode,
     state.settings.dixonColes,
   ]);
@@ -577,36 +558,90 @@ function calculateMatch(match) {
   return calc;
 }
 
+// Prolongation = 30 min = 1/3 d'un match de 90 min : meme ratio de force, buts
+// attendus reduits au tiers.
+function extraTimeScores(lambdaHome, lambdaAway, rho) {
+  return scoreDistribution(lambdaHome / 3, lambdaAway / 3, 6, rho);
+}
+
+// Issues a 120 min : la cote de qualification donne le partage equipe 1 / equipe
+// 2 (tirs au but ~ 50/50 qui s'annulent), le modele de buts donne la part de nul
+// qui survit a la prolongation.
+function knockoutOutcomeProbs(scores90, lambdas, qual, rho) {
+  const draw90 = scores90.reduce((sum, s) => sum + (s.home === s.away ? s.probability : 0), 0);
+  const etDraw = extraTimeScores(lambdas.lambdaHome, lambdas.lambdaAway, rho).reduce(
+    (sum, s) => sum + (s.home === s.away ? s.probability : 0),
+    0,
+  );
+  const draw120 = draw90 * etDraw;
+  const home = Math.max(0, qual.home - draw120 / 2);
+  const away = Math.max(0, qual.away - draw120 / 2);
+  const total = home + draw120 + away || 1;
+  return { home: home / total, draw: draw120 / total, away: away / total };
+}
+
+// Distribution des scores a 120 min : les matchs decides en 90 gardent leur
+// score, les nuls a 90 se voient ajouter l'increment de prolongation.
+function build120Scores(scores90, lambdas, rho) {
+  const et = extraTimeScores(lambdas.lambdaHome, lambdas.lambdaAway, rho);
+  const map = new Map();
+  const add = (home, away, p) => map.set(`${home}-${away}`, (map.get(`${home}-${away}`) || 0) + p);
+  for (const s of scores90) {
+    if (s.home !== s.away) add(s.home, s.away, s.probability);
+    else for (const e of et) add(s.home + e.home, s.away + e.away, s.probability * e.probability);
+  }
+  return [...map.entries()].map(([key, p]) => {
+    const [home, away] = key.split("-").map(Number);
+    return { home, away, probability: p };
+  });
+}
+
 function computeMatch(match) {
   const resultMarket = normalizeOdds(match.odds || {});
   const probabilities = resultMarket.probabilities;
   const points = match.mpp || {};
-  const issueEv = {
-    home: Number.isFinite(probabilities.home) && Number.isFinite(points.home) ? probabilities.home * points.home : null,
-    draw: Number.isFinite(probabilities.draw) && Number.isFinite(points.draw) ? probabilities.draw * points.draw : null,
-    away: Number.isFinite(probabilities.away) && Number.isFinite(points.away) ? probabilities.away * points.away : null,
-  };
+  const rho = state.settings.dixonColes ? DC_RHO : 0;
 
   const lambdas = fitLambdas(match, probabilities);
-  const poissonScores = scoreDistribution(
-    lambdas.lambdaHome,
-    lambdas.lambdaAway,
-    8,
-    state.settings.dixonColes ? DC_RHO : 0,
-  );
-  const correctScores = parseCorrectScoreLines(match.correctScoreText);
+  const poissonScores = scoreDistribution(lambdas.lambdaHome, lambdas.lambdaAway, 8, rho);
+
+  // Mode elimination directe : le score a 120 min fait foi.
+  const qual = normalizeOdds({ home: match.qual?.home, away: match.qual?.away }).probabilities;
+  const knockoutRequested = Boolean(match.knockout);
+  const qualReady = Number.isFinite(qual.home) && Number.isFinite(qual.away);
+  const knockout = knockoutRequested && qualReady;
+  let outcomeProbs = probabilities;
+  let baseScores = poissonScores;
+  if (knockout) {
+    outcomeProbs = knockoutOutcomeProbs(poissonScores, lambdas, qual, rho);
+    const scores120 = build120Scores(poissonScores, lambdas, rho);
+    const modelByIssue = { home: 0, draw: 0, away: 0 };
+    for (const s of scores120) modelByIssue[outcomeFromScore(s.home, s.away)] += s.probability;
+    baseScores = scores120.map((s) => {
+      const issue = outcomeFromScore(s.home, s.away);
+      const scale = modelByIssue[issue] > 0 ? outcomeProbs[issue] / modelByIssue[issue] : 0;
+      return { ...s, probability: s.probability * scale };
+    });
+  }
+
+  const issueEv = {
+    home: Number.isFinite(outcomeProbs.home) && Number.isFinite(points.home) ? outcomeProbs.home * points.home : null,
+    draw: Number.isFinite(outcomeProbs.draw) && Number.isFinite(points.draw) ? outcomeProbs.draw * points.draw : null,
+    away: Number.isFinite(outcomeProbs.away) && Number.isFinite(points.away) ? outcomeProbs.away * points.away : null,
+  };
+
   const rarityMap = new Map(
-    parseCorrectScoreLines(match.rarityBonusText).map((row) => [`${row.home}-${row.away}`, row.odd]),
+    parseScoreValueLines(match.rarityBonusText).map((row) => [`${row.home}-${row.away}`, row.odd]),
   );
   const publicSplit = normalizePublicSplit(match.publicSplit);
-  const scores = blendScoreProbabilities(poissonScores, correctScores)
+  const scores = baseScores
     .map((score) => {
       const issue = outcomeFromScore(score.home, score.away);
       const issueBaseEv = issueEv[issue] || 0;
       const knownBonus = rarityMap.get(`${score.home}-${score.away}`);
       const bonus = Number.isFinite(knownBonus)
         ? knownBonus
-        : estimateBonus(score, score.probability, probabilities[issue], state.settings.riskMode, publicSplit?.[issue]);
+        : estimateBonus(score, score.probability, outcomeProbs[issue], state.settings.riskMode, publicSplit?.[issue]);
       return {
         ...score,
         issue,
@@ -617,7 +652,7 @@ function computeMatch(match) {
     })
     .sort((a, b) => b.ev - a.ev);
 
-  const bestIssue = chooseAnchorIssue(issueEv, probabilities, state.settings.riskMode);
+  const bestIssue = chooseAnchorIssue(issueEv, outcomeProbs, state.settings.riskMode);
   // En equilibre/conservateur, on ancre la reco sur l'issue retenue : un edge
   // de bonus (la partie la plus bruitee du modele) ne doit pas faire basculer
   // vers une issue nettement moins probable sur une quasi-egalite d'EV.
@@ -626,33 +661,39 @@ function computeMatch(match) {
   const candidateScores =
     aggressive || !bestIssue ? scores : scores.filter((score) => score.issue === bestIssue);
   const recommendation = chooseRobustScore(candidateScores.length ? candidateScores : scores, state.settings.riskMode);
-  const actual = calculateActualPoints(match, recommendation, scores);
+  const hasBaseData =
+    Number.isFinite(points.home) &&
+    Number.isFinite(points.draw) &&
+    Number.isFinite(points.away) &&
+    Number.isFinite(match.odds?.home) &&
+    Number.isFinite(match.odds?.draw) &&
+    Number.isFinite(match.odds?.away);
+  const hasCoreData = hasBaseData && (!knockoutRequested || qualReady);
+  const activeRecommendation = hasCoreData ? recommendation : null;
+  const actual = calculateActualPoints(match, activeRecommendation, scores);
 
   // Le score le mieux paye est sur une autre issue que la reco ancree : on
   // a ecarte un pari de bonus sur une issue moins sure -> on le signale.
   const topScoreIssue = scores[0]?.issue;
   const closeIssue =
-    !aggressive && bestIssue && topScoreIssue && topScoreIssue !== bestIssue
+    hasCoreData && !aggressive && bestIssue && topScoreIssue && topScoreIssue !== bestIssue
       ? { picked: bestIssue, over: topScoreIssue }
       : null;
 
   return {
     resultMarket,
-    probabilities,
+    probabilities: outcomeProbs,
     issueEv,
     bestIssue,
     closeIssue,
+    knockout,
+    knockoutRequested,
+    needsQual: knockoutRequested && !qualReady,
     lambdas,
     scores,
-    recommendation,
+    recommendation: activeRecommendation,
     actual,
-    hasCoreData:
-      Number.isFinite(points.home) &&
-      Number.isFinite(points.draw) &&
-      Number.isFinite(points.away) &&
-      Number.isFinite(match.odds?.home) &&
-      Number.isFinite(match.odds?.draw) &&
-      Number.isFinite(match.odds?.away),
+    hasCoreData,
   };
 }
 
@@ -736,6 +777,11 @@ function matchFromForm() {
       draw: parseNumber(fields.oddsDraw.value),
       away: parseNumber(fields.oddsAway.value),
     },
+    knockout: fields.knockout.checked,
+    qual: {
+      home: parseNumber(fields.qualHome.value),
+      away: parseNumber(fields.qualAway.value),
+    },
     markets: {
       totalLine: parseNumber(fields.totalLine.value),
       over25: parseNumber(fields.over25.value),
@@ -749,7 +795,6 @@ function matchFromForm() {
       awayOver: parseNumber(fields.awayOver.value),
       awayUnder: parseNumber(fields.awayUnder.value),
     },
-    correctScoreText: fields.correctScoreText.value.trim(),
     rarityBonusText: fields.rarityBonusText.value.trim(),
     played: {
       home: parseNumber(fields.playedHome.value),
@@ -779,6 +824,9 @@ function fillForm(match) {
   fields.oddsHome.value = match?.odds?.home ?? "";
   fields.oddsDraw.value = match?.odds?.draw ?? "";
   fields.oddsAway.value = match?.odds?.away ?? "";
+  fields.knockout.checked = Boolean(match?.knockout);
+  fields.qualHome.value = match?.qual?.home ?? "";
+  fields.qualAway.value = match?.qual?.away ?? "";
   fields.totalLine.value = match?.markets?.totalLine ?? 2.5;
   fields.over25.value = match?.markets?.over25 ?? "";
   fields.under25.value = match?.markets?.under25 ?? "";
@@ -790,7 +838,6 @@ function fillForm(match) {
   fields.awayLine.value = match?.markets?.awayLine ?? 0.5;
   fields.awayOver.value = match?.markets?.awayOver ?? match?.markets?.awayOver05 ?? "";
   fields.awayUnder.value = match?.markets?.awayUnder ?? match?.markets?.awayUnder05 ?? "";
-  fields.correctScoreText.value = match?.correctScoreText || "";
   fields.rarityBonusText.value = match?.rarityBonusText || "";
   fields.playedHome.value = match?.played?.home ?? "";
   fields.playedAway.value = match?.played?.away ?? "";
@@ -1015,6 +1062,9 @@ function renderMatchList() {
     if (calc.actual) {
       status.textContent = `${formatNumber(calc.actual.points, 0)} pts reels`;
       status.classList.add(calc.actual.issueHit ? "good" : "warn");
+    } else if (calc.needsQual) {
+      status.textContent = "cotes qualif a completer";
+      status.classList.add("warn");
     } else if (isSoon) {
       status.textContent = "T-90 min";
       status.classList.add("warn");
@@ -1038,7 +1088,9 @@ function renderPreview() {
   const rec = calc.recommendation;
 
   if (!calc.hasCoreData) {
-    els.matchPreview.innerHTML = "<span class='helper'>Renseigne points MPP et cotes 1/N/2 pour obtenir une decision.</span>";
+    els.matchPreview.innerHTML = calc.needsQual
+      ? "<span class='helper'>Renseigne les cotes de qualification equipe 1 / equipe 2 pour calculer ce match a 120 min.</span>"
+      : "<span class='helper'>Renseigne points MPP et cotes 1/N/2 pour obtenir une decision.</span>";
     return;
   }
 
@@ -1074,8 +1126,8 @@ function renderPreview() {
         .join("")}
     </div>
     <div class="notice">
-      <strong>Decision: ${rec ? `${rec.home}-${rec.away}` : "-"}</strong>
-      <p>Modele buts: ${formatNumber(calc.lambdas.lambdaHome, 2)} - ${formatNumber(calc.lambdas.lambdaAway, 2)} xG. TRJ ${formatPercent(calc.resultMarket.trj, 1)}.</p>
+      <strong>Decision: ${rec ? `${rec.home}-${rec.away}` : "-"}${calc.knockout ? " · 120 min" : ""}</strong>
+      <p>Modele buts: ${formatNumber(calc.lambdas.lambdaHome, 2)} - ${formatNumber(calc.lambdas.lambdaAway, 2)} xG (90 min). TRJ ${formatPercent(calc.resultMarket.trj, 1)}.${calc.knockout ? " Issues calees sur la qualification, nul reduit pour les prolongations." : ""}</p>
       ${
         calc.closeIssue
           ? `<p>Le score le mieux paye est sur ${outcomeLabel(calc.closeIssue.over)} (moins probable). Reco ancree sur ${outcomeLabel(calc.closeIssue.picked)}, l'issue plus sure. Passe en agressif pour viser ${outcomeLabel(calc.closeIssue.over)}.</p>`
@@ -1155,17 +1207,6 @@ function previewImport() {
   const kind = els.importKind.value;
   const text = els.importText.value;
 
-  if (kind === "scores") {
-    const rows = parseCorrectScoreLines(text);
-    els.importPreview.innerHTML = rows.length
-      ? `<strong>${rows.length} scores detectes</strong><p class="helper">${rows
-          .slice(0, 8)
-          .map((row) => `${row.home}-${row.away} @ ${row.odd}`)
-          .join(" | ")}</p>`
-      : "<span class='helper'>Aucun score detecte.</span>";
-    return rows;
-  }
-
   const triplet = parseTriplet(text, kind);
   els.importPreview.innerHTML =
     triplet.length === 3
@@ -1180,11 +1221,7 @@ function applyImport() {
   const kind = els.importKind.value;
   const parsed = previewImport();
 
-  if (kind === "scores") {
-    const rows = Array.isArray(parsed) ? parsed : [];
-    if (!rows.length) return;
-    match.correctScoreText = rows.map((row) => `${row.home}-${row.away} ${row.odd}`).join("\n");
-  } else if (Array.isArray(parsed) && parsed.length === 3) {
+  if (Array.isArray(parsed) && parsed.length === 3) {
     const target = kind === "mpp" ? "mpp" : "odds";
     match[target] = {
       ...(match[target] || {}),
@@ -1209,7 +1246,7 @@ function cloudPayload() {
     clientId: getClientId(),
     state: {
       ...state,
-      matches: state.matches || [],
+      matches: (state.matches || []).map(normalizeMatchRecord),
       deletedMatches: state.deletedMatches || {},
     },
   };
@@ -1221,7 +1258,7 @@ function normalizeCloudState(payload) {
     ...structuredClone(defaultState),
     ...source,
     settings: { ...defaultState.settings, ...(source?.settings || {}) },
-    matches: Array.isArray(source?.matches) ? source.matches : [],
+    matches: Array.isArray(source?.matches) ? source.matches.map(normalizeMatchRecord) : [],
     deletedMatches: source?.deletedMatches && typeof source.deletedMatches === "object" ? source.deletedMatches : {},
   };
 }
@@ -1599,7 +1636,7 @@ function importData(file) {
         ...structuredClone(defaultState),
         ...parsed,
         settings: { ...defaultState.settings, ...(parsed.settings || {}) },
-        matches: Array.isArray(parsed.matches) ? parsed.matches : [],
+        matches: Array.isArray(parsed.matches) ? parsed.matches.map(normalizeMatchRecord) : [],
         deletedMatches: parsed.deletedMatches && typeof parsed.deletedMatches === "object" ? parsed.deletedMatches : {},
       };
       markDirty();
@@ -1640,12 +1677,6 @@ function bindEvents() {
     field.addEventListener?.("input", renderPreview);
     field.addEventListener?.("change", renderPreview);
   });
-  els.parseScoresButton.addEventListener("click", () => {
-    const rows = parseCorrectScoreLines(fields.correctScoreText.value);
-    els.scoreParseInfo.textContent = rows.length ? `${rows.length} scores detectes.` : "Aucun score detecte.";
-    renderPreview();
-  });
-
   els.openImportButton.addEventListener("click", () => {
     renderImportMatchOptions();
     els.importText.value = "";

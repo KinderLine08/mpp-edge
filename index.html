@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#102a43" />
     <title>MPP Edge</title>
     <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon-192.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icons/icon-192.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -171,8 +172,28 @@
           </label>
         </div>
 
+        <div class="section-title">
+          <h3>Elimination directe</h3>
+          <span>120 min</span>
+        </div>
+        <label class="checkbox-row compact">
+          <input id="knockout" type="checkbox" />
+          Match a elimination directe (le score a 120 min compte)
+        </label>
+        <div class="form-grid two">
+          <label>
+            Cote qualif equipe 1
+            <input id="qualHome" inputmode="decimal" placeholder="1.40" />
+          </label>
+          <label>
+            Cote qualif equipe 2
+            <input id="qualAway" inputmode="decimal" placeholder="3.00" />
+          </label>
+        </div>
+        <div class="helper">Le 1X2 ci-dessus reste celui a 90 min ; la cote de qualification corrige les issues pour les 120 min (le nul chute de ~moitie).</div>
+
         <details class="advanced">
-          <summary>Marches buts et score exact</summary>
+          <summary>Marches buts et bonus score</summary>
 
           <div class="section-title">
             <h3>Total buts</h3>
@@ -257,17 +278,10 @@
           </div>
 
           <label>
-            Cotes score exact collees
-            <textarea id="correctScoreText" rows="8" placeholder="Mexico 1, South Africa 0 5.600&#10;Mexico 2, South Africa 0 6.130"></textarea>
-          </label>
-          <button class="secondary-button full" id="parseScoresButton" type="button">Analyser les scores colles</button>
-          <div id="scoreParseInfo" class="helper"></div>
-
-          <label>
             Forcer le bonus rarete par score
             <textarea id="rarityBonusText" rows="4" placeholder="2-0 30&#10;2-1 50"></textarea>
           </label>
-          <div class="helper">Le bonus depend de la repartition des pronos de tous les joueurs MPP, connue seulement au coup d'envoi. L'app l'estime (~). Si tu as une meilleure info (stats MPP, historique de ta ligue), force la valeur ici (format: score bonus).</div>
+          <div class="helper">Le bonus depend de la repartition des pronos de tous les joueurs MPP, connue seulement au coup d'envoi. L'app l'estime (~) sans cotes de score exact. Si tu as une meilleure info (stats MPP, historique de ta ligue), force la valeur ici (format: score bonus).</div>
         </details>
 
         <details class="advanced">
@@ -340,7 +354,6 @@
           <select id="importKind">
             <option value="mpp">Points MPP 1/N/2</option>
             <option value="odds">Cotes 1/N/2</option>
-            <option value="scores">Scores exacts</option>
           </select>
         </label>
 
