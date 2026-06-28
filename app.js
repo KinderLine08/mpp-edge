@@ -1,4 +1,4 @@
-const APP_VERSION = "v33";
+const APP_VERSION = "v34";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -777,10 +777,10 @@ function matchFromForm() {
       draw: parseNumber(fields.oddsDraw.value),
       away: parseNumber(fields.oddsAway.value),
     },
-    knockout: fields.knockout.checked,
+    knockout: Boolean(fields.knockout?.checked),
     qual: {
-      home: parseNumber(fields.qualHome.value),
-      away: parseNumber(fields.qualAway.value),
+      home: parseNumber(fields.qualHome?.value),
+      away: parseNumber(fields.qualAway?.value),
     },
     markets: {
       totalLine: parseNumber(fields.totalLine.value),
@@ -824,9 +824,9 @@ function fillForm(match) {
   fields.oddsHome.value = match?.odds?.home ?? "";
   fields.oddsDraw.value = match?.odds?.draw ?? "";
   fields.oddsAway.value = match?.odds?.away ?? "";
-  fields.knockout.checked = Boolean(match?.knockout);
-  fields.qualHome.value = match?.qual?.home ?? "";
-  fields.qualAway.value = match?.qual?.away ?? "";
+  if (fields.knockout) fields.knockout.checked = Boolean(match?.knockout);
+  if (fields.qualHome) fields.qualHome.value = match?.qual?.home ?? "";
+  if (fields.qualAway) fields.qualAway.value = match?.qual?.away ?? "";
   fields.totalLine.value = match?.markets?.totalLine ?? 2.5;
   fields.over25.value = match?.markets?.over25 ?? "";
   fields.under25.value = match?.markets?.under25 ?? "";
@@ -1674,8 +1674,8 @@ function bindEvents() {
     els.matchDialog.close();
   });
   Object.values(fields).forEach((field) => {
-    field.addEventListener?.("input", renderPreview);
-    field.addEventListener?.("change", renderPreview);
+    field?.addEventListener?.("input", renderPreview);
+    field?.addEventListener?.("change", renderPreview);
   });
   els.openImportButton.addEventListener("click", () => {
     renderImportMatchOptions();
