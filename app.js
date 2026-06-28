@@ -1,4 +1,4 @@
-const APP_VERSION = "v34";
+const APP_VERSION = "v35";
 const STORAGE_KEY = "mpp-edge-state-v1";
 const SYNC_KEY = "mpp-edge-sync-config-v1";
 const CLIENT_KEY = "mpp-edge-client-id-v1";
@@ -107,6 +107,12 @@ const fields = {
   knockout: document.querySelector("#knockout"),
   qualHome: document.querySelector("#qualHome"),
   qualAway: document.querySelector("#qualAway"),
+  winHome90: document.querySelector("#winHome90"),
+  winAway90: document.querySelector("#winAway90"),
+  winHomeEt: document.querySelector("#winHomeEt"),
+  winAwayEt: document.querySelector("#winAwayEt"),
+  winHomePens: document.querySelector("#winHomePens"),
+  winAwayPens: document.querySelector("#winAwayPens"),
   totalLine: document.querySelector("#totalLine"),
   over25: document.querySelector("#over25"),
   under25: document.querySelector("#under25"),
@@ -540,6 +546,7 @@ function calcSignature(match) {
     match.x2Used,
     match.knockout,
     match.qual,
+    match.victoryMode,
     state.settings.riskMode,
     state.settings.dixonColes,
   ]);
@@ -596,6 +603,30 @@ function build120Scores(scores90, lambdas, rho) {
   });
 }
 
+function victoryModeOutcomeProbs(mode) {
+  const market = normalizeOdds({
+    home90: mode?.home90,
+    away90: mode?.away90,
+    homeEt: mode?.homeEt,
+    awayEt: mode?.awayEt,
+    homePens: mode?.homePens,
+    awayPens: mode?.awayPens,
+  });
+  const p = market.probabilities;
+  const ready = ["home90", "away90", "homeEt", "awayEt", "homePens", "awayPens"].every((key) =>
+    Number.isFinite(p[key]),
+  );
+  if (!ready) return { probabilities: null, market };
+  return {
+    probabilities: {
+      home: p.home90 + p.homeEt,
+      draw: p.homePens + p.awayPens,
+      away: p.away90 + p.awayEt,
+    },
+    market,
+  };
+}
+
 function computeMatch(match) {
   const resultMarket = normalizeOdds(match.odds || {});
   const probabilities = resultMarket.probabilities;
@@ -607,13 +638,19 @@ function computeMatch(match) {
 
   // Mode elimination directe : le score a 120 min fait foi.
   const qual = normalizeOdds({ home: match.qual?.home, away: match.qual?.away }).probabilities;
+  const victoryMode = victoryModeOutcomeProbs(match.victoryMode);
   const knockoutRequested = Boolean(match.knockout);
+  const victoryModeReady = Boolean(victoryMode.probabilities);
   const qualReady = Number.isFinite(qual.home) && Number.isFinite(qual.away);
-  const knockout = knockoutRequested && qualReady;
+  const knockout = knockoutRequested && (victoryModeReady || qualReady);
+  let knockoutSource = "";
   let outcomeProbs = probabilities;
   let baseScores = poissonScores;
   if (knockout) {
-    outcomeProbs = knockoutOutcomeProbs(poissonScores, lambdas, qual, rho);
+    outcomeProbs = victoryModeReady
+      ? victoryMode.probabilities
+      : knockoutOutcomeProbs(poissonScores, lambdas, qual, rho);
+    knockoutSource = victoryModeReady ? "mode-victory" : "qualification";
     const scores120 = build120Scores(poissonScores, lambdas, rho);
     const modelByIssue = { home: 0, draw: 0, away: 0 };
     for (const s of scores120) modelByIssue[outcomeFromScore(s.home, s.away)] += s.probability;
@@ -668,7 +705,7 @@ function computeMatch(match) {
     Number.isFinite(match.odds?.home) &&
     Number.isFinite(match.odds?.draw) &&
     Number.isFinite(match.odds?.away);
-  const hasCoreData = hasBaseData && (!knockoutRequested || qualReady);
+  const hasCoreData = hasBaseData && (!knockoutRequested || victoryModeReady || qualReady);
   const activeRecommendation = hasCoreData ? recommendation : null;
   const actual = calculateActualPoints(match, activeRecommendation, scores);
 
@@ -688,7 +725,8 @@ function computeMatch(match) {
     closeIssue,
     knockout,
     knockoutRequested,
-    needsQual: knockoutRequested && !qualReady,
+    knockoutSource,
+    needsQual: knockoutRequested && !victoryModeReady && !qualReady,
     lambdas,
     scores,
     recommendation: activeRecommendation,
@@ -782,6 +820,14 @@ function matchFromForm() {
       home: parseNumber(fields.qualHome?.value),
       away: parseNumber(fields.qualAway?.value),
     },
+    victoryMode: {
+      home90: parseNumber(fields.winHome90?.value),
+      away90: parseNumber(fields.winAway90?.value),
+      homeEt: parseNumber(fields.winHomeEt?.value),
+      awayEt: parseNumber(fields.winAwayEt?.value),
+      homePens: parseNumber(fields.winHomePens?.value),
+      awayPens: parseNumber(fields.winAwayPens?.value),
+    },
     markets: {
       totalLine: parseNumber(fields.totalLine.value),
       over25: parseNumber(fields.over25.value),
@@ -827,6 +873,12 @@ function fillForm(match) {
   if (fields.knockout) fields.knockout.checked = Boolean(match?.knockout);
   if (fields.qualHome) fields.qualHome.value = match?.qual?.home ?? "";
   if (fields.qualAway) fields.qualAway.value = match?.qual?.away ?? "";
+  if (fields.winHome90) fields.winHome90.value = match?.victoryMode?.home90 ?? "";
+  if (fields.winAway90) fields.winAway90.value = match?.victoryMode?.away90 ?? "";
+  if (fields.winHomeEt) fields.winHomeEt.value = match?.victoryMode?.homeEt ?? "";
+  if (fields.winAwayEt) fields.winAwayEt.value = match?.victoryMode?.awayEt ?? "";
+  if (fields.winHomePens) fields.winHomePens.value = match?.victoryMode?.homePens ?? "";
+  if (fields.winAwayPens) fields.winAwayPens.value = match?.victoryMode?.awayPens ?? "";
   fields.totalLine.value = match?.markets?.totalLine ?? 2.5;
   fields.over25.value = match?.markets?.over25 ?? "";
   fields.under25.value = match?.markets?.under25 ?? "";
@@ -1063,7 +1115,7 @@ function renderMatchList() {
       status.textContent = `${formatNumber(calc.actual.points, 0)} pts reels`;
       status.classList.add(calc.actual.issueHit ? "good" : "warn");
     } else if (calc.needsQual) {
-      status.textContent = "cotes qualif a completer";
+      status.textContent = "cotes 120 min a completer";
       status.classList.add("warn");
     } else if (isSoon) {
       status.textContent = "T-90 min";
@@ -1089,7 +1141,7 @@ function renderPreview() {
 
   if (!calc.hasCoreData) {
     els.matchPreview.innerHTML = calc.needsQual
-      ? "<span class='helper'>Renseigne les cotes de qualification equipe 1 / equipe 2 pour calculer ce match a 120 min.</span>"
+      ? "<span class='helper'>Renseigne les cotes mode de victoire ou les cotes de qualification pour calculer ce match a 120 min.</span>"
       : "<span class='helper'>Renseigne points MPP et cotes 1/N/2 pour obtenir une decision.</span>";
     return;
   }
@@ -1127,7 +1179,7 @@ function renderPreview() {
     </div>
     <div class="notice">
       <strong>Decision: ${rec ? `${rec.home}-${rec.away}` : "-"}${calc.knockout ? " · 120 min" : ""}</strong>
-      <p>Modele buts: ${formatNumber(calc.lambdas.lambdaHome, 2)} - ${formatNumber(calc.lambdas.lambdaAway, 2)} xG (90 min). TRJ ${formatPercent(calc.resultMarket.trj, 1)}.${calc.knockout ? " Issues calees sur la qualification, nul reduit pour les prolongations." : ""}</p>
+      <p>Modele buts: ${formatNumber(calc.lambdas.lambdaHome, 2)} - ${formatNumber(calc.lambdas.lambdaAway, 2)} xG (90 min). TRJ ${formatPercent(calc.resultMarket.trj, 1)}.${calc.knockout ? (calc.knockoutSource === "mode-victory" ? " Issues calees sur le mode de victoire." : " Issues calees sur la qualification, nul reduit pour les prolongations.") : ""}</p>
       ${
         calc.closeIssue
           ? `<p>Le score le mieux paye est sur ${outcomeLabel(calc.closeIssue.over)} (moins probable). Reco ancree sur ${outcomeLabel(calc.closeIssue.picked)}, l'issue plus sure. Passe en agressif pour viser ${outcomeLabel(calc.closeIssue.over)}.</p>`

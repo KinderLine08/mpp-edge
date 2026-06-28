@@ -180,6 +180,41 @@
           <input id="knockout" type="checkbox" />
           Match a elimination directe (le score a 120 min compte)
         </label>
+        <div class="section-title">
+          <h3>Mode de victoire</h3>
+          <span>prioritaire</span>
+        </div>
+        <div class="form-grid two">
+          <label>
+            Eq. 1 gagne en 90
+            <input id="winHome90" inputmode="decimal" placeholder="4.820" />
+          </label>
+          <label>
+            Eq. 2 gagne en 90
+            <input id="winAway90" inputmode="decimal" placeholder="1.854" />
+          </label>
+          <label>
+            Eq. 1 gagne en prolong.
+            <input id="winHomeEt" inputmode="decimal" placeholder="21.020" />
+          </label>
+          <label>
+            Eq. 2 gagne en prolong.
+            <input id="winAwayEt" inputmode="decimal" placeholder="9.650" />
+          </label>
+          <label>
+            Eq. 1 gagne aux TAB
+            <input id="winHomePens" inputmode="decimal" placeholder="12.580" />
+          </label>
+          <label>
+            Eq. 2 gagne aux TAB
+            <input id="winAwayPens" inputmode="decimal" placeholder="11.150" />
+          </label>
+        </div>
+        <div class="helper">Si ces 6 cotes sont renseignees, elles donnent directement les issues a 120 min : 90 + prolongation = victoire, tirs au but = nul.</div>
+        <div class="section-title">
+          <h3>Qualification</h3>
+          <span>fallback</span>
+        </div>
         <div class="form-grid two">
           <label>
             Cote qualif equipe 1
@@ -190,7 +225,7 @@
             <input id="qualAway" inputmode="decimal" placeholder="3.00" />
           </label>
         </div>
-        <div class="helper">Le 1X2 ci-dessus reste celui a 90 min ; la cote de qualification corrige les issues pour les 120 min (le nul chute de ~moitie).</div>
+        <div class="helper">Le 1X2 ci-dessus reste celui a 90 min ; si le mode de victoire est vide, la cote de qualification corrige les issues pour les 120 min.</div>
 
         <details class="advanced">
           <summary>Marches buts et bonus score</summary>
